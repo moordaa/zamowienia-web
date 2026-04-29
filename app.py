@@ -9,7 +9,7 @@ KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhk
 
 supabase: Client = create_client(URL, KEY)
 
-st.set_page_config(page_title="Zapotrzebowanie", page_icon="🛒", layout="centered")
+st.set_page_config(page_title="Zamówienia", page_icon="🛒", layout="centered")
 
 if 'zalogowany' not in st.session_state:
     st.session_state.zalogowany = False
@@ -18,7 +18,7 @@ if 'zalogowany' not in st.session_state:
 
 # --- LOGOWANIE (DZIELI BAZĘ Z PAKAMERĄ) ---
 if not st.session_state.zalogowany:
-    st.title("🛒 ZAPOTRZEBOWANIE")
+    st.title("🛒 ZAMÓWIENIA")
     st.caption("System zamówień materiałowych")
     l = st.text_input("Login")
     p = st.text_input("Hasło", type="password")
@@ -45,9 +45,9 @@ else:
         
         # Menu różni się w zależności od roli
         if st.session_state.rola == "admin":
-            menu = st.radio("MENU", ["📝 Nowe Zgłoszenie", "⚙️ Panel Realizacji (Admin)", "🔎 Historia i Szukaj"])
+            menu = st.radio("MENU", ["📝 Nowe Zamówienie", "⚙️ Panel Realizacji (Admin)", "🔎 Historia i Szukaj"])
         else:
-            menu = st.radio("MENU", ["📝 Nowe Zgłoszenie", "📋 Moje Aktywne", "🔎 Historia i Szukaj"])
+            menu = st.radio("MENU", ["📝 Nowe Zamówienie", "📋 Moje Aktywne", "🔎 Historia i Szukaj"])
             
         st.divider()
         if st.button("🔄 Odśwież dane", use_container_width=True):
@@ -67,10 +67,10 @@ else:
     }
 
     # =========================================================================
-    # ZAKŁADKA: NOWE ZGŁOSZENIE
+    # ZAKŁADKA: NOWE ZAMÓWIENIE
     # =========================================================================
-    if menu == "📝 Nowe Zgłoszenie":
-        st.title("📝 Dodaj zapotrzebowanie")
+    if menu == "📝 Nowe Zamówienie":
+        st.title("📝 Dodaj zamówienie")
         
         with st.container(border=True):
             pozycja = st.text_input("🔧 Pozycja (np. Śruba zamkowa)")
@@ -84,9 +84,9 @@ else:
             
             projekt = st.text_input("🏗️ Projekt / Budowa / Cel")
             
-            if st.button("WYŚLIJ ZGŁOSZENIE", type="primary", use_container_width=True):
+            if st.button("WYŚLIJ ZAMÓWIENIE", type="primary", use_container_width=True):
                 if pozycja and ilosc:
-                    supabase.table("zapotrzebowanie").insert({
+                    supabase.table("zamowienia").insert({
                         "pozycja": pozycja,
                         "wymiary": wymiary,
                         "material": material,
@@ -97,7 +97,7 @@ else:
                         "zgloszone_przez": st.session_state.uzytkownik,
                         "data_zgloszenia": str(datetime.today().date())
                     }).execute()
-                    st.toast("Zgłoszenie wysłane!")
+                    st.toast("Zamówienie wysłane!")
                     st.rerun()
                 else:
                     st.error("Pola 'Pozycja' i 'Ilość' są obowiązkowe!")
@@ -107,17 +107,15 @@ else:
     # =========================================================================
     elif menu == "⚙️ Panel Realizacji (Admin)":
         st.title("⚙️ Zarządzaj Zamówieniami")
-        st.caption("Lista wszystkich aktywnych zgłoszeń. Zmieniaj statusy i dodawaj uwagi.")
+        st.caption("Lista wszystkich aktywnych zamówień. Zmieniaj statusy i dodawaj uwagi.")
         
-        # Pobierz wszystkie niezrealizowane
-        res = supabase.table("zapotrzebowanie").select("*").neq("status", "Zrealizowane").order("id", desc=True).execute()
+        res = supabase.table("zamowienia").select("*").neq("status", "Zrealizowane").order("id", desc=True).execute()
         
         if not res.data:
             st.success("Wszystkie zamówienia są zrealizowane! Brak aktywnych zgłoszeń.")
         else:
             for r in res.data:
                 with st.container(border=True):
-                    # Nagłówek elementu
                     st.markdown(f"### {r['pozycja']} ({r['ilosc']})")
                     if "PILNE" in r['pilnosc'] or "KRYTYCZNE" in r['pilnosc']:
                         st.error(f"🚨 {r['pilnosc']}")
@@ -127,7 +125,6 @@ else:
                     
                     st.divider()
                     
-                    # Panel kontrolny Admina
                     col_stat, col_uwg = st.columns([1, 2])
                     
                     lista_statusow = ["Oczekujące", "Zamówione", "Niedostępne", "Zamiennik", "Zrealizowane"]
@@ -138,24 +135,24 @@ else:
                     
                     c1, c2 = st.columns([3, 1])
                     if c1.button("💾 Zapisz zmiany", key=f"zapisz_{r['id']}", type="primary"):
-                        supabase.table("zapotrzebowanie").update({
+                        supabase.table("zamowienia").update({
                             "status": nowy_status, 
                             "uwagi_admina": nowe_uwagi
                         }).eq("id", r['id']).execute()
                         st.toast("Zaktualizowano!")
                         st.rerun()
                     if c2.button("🗑️ Usuń", key=f"del_{r['id']}", type="secondary"):
-                        supabase.table("zapotrzebowanie").delete().eq("id", r['id']).execute()
+                        supabase.table("zamowienia").delete().eq("id", r['id']).execute()
                         st.rerun()
 
     # =========================================================================
     # ZAKŁADKA: MOJE AKTYWNE (ZWYKŁY UŻYTKOWNIK)
     # =========================================================================
     elif menu == "📋 Moje Aktywne":
-        st.title("📋 Aktywne Zgłoszenia")
+        st.title("📋 Aktywne Zamówienia")
         st.caption("Tutaj widzisz statusy elementów, które zamówiłeś.")
         
-        res = supabase.table("zapotrzebowanie").select("*").eq("zgloszone_przez", st.session_state.uzytkownik).neq("status", "Zrealizowane").order("id", desc=True).execute()
+        res = supabase.table("zamowienia").select("*").eq("zgloszone_przez", st.session_state.uzytkownik).neq("status", "Zrealizowane").order("id", desc=True).execute()
         
         if not res.data:
             st.info("Nie masz obecnie żadnych oczekujących zamówień.")
@@ -177,7 +174,7 @@ else:
     elif menu == "🔎 Historia i Szukaj":
         st.title("🔎 Baza Zamówień")
         
-        res_all = supabase.table("zapotrzebowanie").select("projekt, zgloszone_przez").execute()
+        res_all = supabase.table("zamowienia").select("projekt, zgloszone_przez").execute()
         projekty = sorted(list(set([x['projekt'] for x in res_all.data if x['projekt']])))
         osoby = sorted(list(set([x['zgloszone_przez'] for x in res_all.data if x['zgloszone_przez']])))
         
@@ -189,7 +186,7 @@ else:
             f_status = col3.selectbox("📌 Status", ["-- Wszystkie --", "Oczekujące", "Zamówione", "Niedostępne", "Zamiennik", "Zrealizowane"])
             
             if st.button("SZUKAJ", type="primary", use_container_width=True):
-                q = supabase.table("zapotrzebowanie").select("*")
+                q = supabase.table("zamowienia").select("*")
                 if f_proj != "-- Wszystkie --": q = q.eq("projekt", f_proj)
                 if f_kto != "-- Wszyscy --": q = q.eq("zgloszone_przez", f_kto)
                 if f_status != "-- Wszystkie --": q = q.eq("status", f_status)
