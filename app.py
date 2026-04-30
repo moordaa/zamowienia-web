@@ -2,6 +2,7 @@ import streamlit as st
 from supabase import create_client, Client
 from datetime import datetime
 import pandas as pd
+import time  # <-- Dodane do obsługi pauzy po dodaniu zamówienia
 
 # --- KONFIGURACJA ---
 URL = "https://hdmptdcuqxqutfgrgmrj.supabase.co"
@@ -45,7 +46,7 @@ else:
         
         # Menu różni się w zależności od roli
         if st.session_state.rola == "admin":
-            menu = st.radio("MENU", ["📝 Nowe Zamówienie", "⚙️ Panel Realizacji (Admin)", "🔎 Historia i Szukaj"])
+            menu = st.radio("MENU", ["📝 Nowe Zamówienie", "⚙️ Panel Realizacji (Admin)", "👥 Zarządzanie Kontami", "🔎 Historia i Szukaj"])
         else:
             menu = st.radio("MENU", ["📝 Nowe Zamówienie", "📋 Moje Aktywne", "🔎 Historia i Szukaj"])
             
@@ -97,8 +98,12 @@ else:
                         "zgloszone_przez": st.session_state.uzytkownik,
                         "data_zgloszenia": str(datetime.today().date())
                     }).execute()
-                    st.toast("Zamówienie wysłane!")
-                    st.rerun()
+                    
+                    # --- WIDOCZNY KOMUNIKAT SUKCESU ---
+                    st.balloons()
+                    st.success("✅ Zamówienie pomyślnie wysłane do realizacji! Za chwilę strona się odświeży...")
+                    time.sleep(2)  # Czeka 2 sekundy, żeby użytkownik mógł to przeczytać
+                    st.rerun()     # Czyści formularz
                 else:
                     st.error("Pola 'Pozycja' i 'Ilość' są obowiązkowe!")
 
@@ -144,6 +149,60 @@ else:
                     if c2.button("🗑️ Usuń", key=f"del_{r['id']}", type="secondary"):
                         supabase.table("zamowienia").delete().eq("id", r['id']).execute()
                         st.rerun()
+
+    # =========================================================================
+    # ZAKŁADKA: ZARZĄDZANIE KONTAMI (ADMIN)
+    # =========================================================================
+    elif menu == "👥 Zarządzanie Kontami":
+        st.title("👥 Zarządzanie pracownikami")
+        st.caption("Dodawaj i usuwaj konta użytkowników mających dostęp do aplikacji.")
+        
+        # Sekcja dodawania nowego użytkownika
+        with st.container(border=True):
+            st.subheader("➕ Dodaj nowe konto")
+            c1, c2, c3 = st.columns(3)
+            nowy_login = c1.text_input("Wpisz Login")
+            nowe_haslo = c2.text_input("Wpisz Hasło")
+            nowa_rola = c3.selectbox("Wybierz Rolę", ["użytkownik", "admin"])
+            
+            if st.button("Utwórz konto", type="primary"):
+                if nowy_login and nowe_haslo:
+                    # Sprawdzenie czy taki użytkownik już nie istnieje
+                    czy_istnieje = supabase.table("pracownicy").select("login").eq("login", nowy_login).execute()
+                    if czy_istnieje.data:
+                        st.error("Pracownik o takim loginie już istnieje w bazie!")
+                    else:
+                        supabase.table("pracownicy").insert({
+                            "login": nowy_login,
+                            "haslo": nowe_haslo,
+                            "rola": nowa_rola
+                        }).execute()
+                        st.success(f"Dodano użytkownika {nowy_login}!")
+                        time.sleep(1)
+                        st.rerun()
+                else:
+                    st.warning("Uzupełnij login i hasło!")
+
+        st.divider()
+        
+        # Wyświetlanie aktualnych użytkowników
+        st.subheader("📋 Lista aktywnych kont")
+        res_pracownicy = supabase.table("pracownicy").select("*").order("login").execute()
+        
+        if res_pracownicy.data:
+            for p in res_pracownicy.data:
+                with st.container(border=True):
+                    col_info, col_btn = st.columns([4, 1])
+                    rola_wyswietlana = p.get('rola') or "użytkownik"
+                    col_info.markdown(f"👤 Login: **{p['login']}** | 🔑 Hasło: `{p['haslo']}` | 🛡️ Rola: `{rola_wyswietlana}`")
+                    
+                    # Zabezpieczenie przed skasowaniem konta głównego "Emil"
+                    if p['login'].lower() != "emil":
+                        if col_btn.button("🗑️ Usuń", key=f"del_user_{p['login']}", type="secondary"):
+                            supabase.table("pracownicy").delete().eq("login", p['login']).execute()
+                            st.rerun()
+                    else:
+                        col_btn.caption("👑 Konto główne")
 
     # =========================================================================
     # ZAKŁADKA: MOJE AKTYWNE (ZWYKŁY UŻYTKOWNIK)
