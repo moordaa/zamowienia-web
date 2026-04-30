@@ -11,7 +11,7 @@ KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhk
 
 supabase: Client = create_client(URL, KEY)
 
-st.set_page_config(page_title="Zamówienia", page_icon="🛒", layout="centered")
+st.set_page_config(page_title="Zamówienia", page_icon="🛒", layout="wide") # Zmiana layoutu na 'wide' dla lepszego widoku wykresów
 
 if 'zalogowany' not in st.session_state:
     st.session_state.zalogowany = False
@@ -20,25 +20,29 @@ if 'zalogowany' not in st.session_state:
 
 # --- LOGOWANIE ---
 if not st.session_state.zalogowany:
-    st.title("🛒 ZAMÓWIENIA")
-    st.caption("System zamówień materiałowych")
-    l = st.text_input("Login")
-    p = st.text_input("Hasło", type="password")
-    if st.button("ZALOGUJ", use_container_width=True, type="primary"):
-        if l == "Emil" and p == "Sosna100%":
-            st.session_state.zalogowany = True
-            st.session_state.uzytkownik = "Emil"
-            st.session_state.rola = "admin"
-            st.rerun()
-        else:
-            res = supabase.table("pracownicy").select("*").eq("login", l).eq("haslo", p).execute()
-            if res.data:
-                st.session_state.zalogowany = True
-                st.session_state.uzytkownik = l
-                st.session_state.rola = res.data[0].get('rola') or "użytkownik"
-                st.rerun()
-            else:
-                st.error("Błędne dane!")
+    # Wymuszamy wyśrodkowanie okna logowania mimo layout="wide"
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.title("🛒 ZAMÓWIENIA")
+        st.caption("System zamówień materiałowych")
+        with st.container(border=True):
+            l = st.text_input("Login")
+            p = st.text_input("Hasło", type="password")
+            if st.button("ZALOGUJ", use_container_width=True, type="primary"):
+                if l == "Emil" and p == "Sosna100%":
+                    st.session_state.zalogowany = True
+                    st.session_state.uzytkownik = "Emil"
+                    st.session_state.rola = "admin"
+                    st.rerun()
+                else:
+                    res = supabase.table("pracownicy").select("*").eq("login", l).eq("haslo", p).execute()
+                    if res.data:
+                        st.session_state.zalogowany = True
+                        st.session_state.uzytkownik = l
+                        st.session_state.rola = res.data[0].get('rola') or "użytkownik"
+                        st.rerun()
+                    else:
+                        st.error("Błędne dane!")
 else:
     # --- MENU BOCZNE ---
     with st.sidebar:
@@ -46,7 +50,14 @@ else:
         st.divider()
         
         if st.session_state.rola == "admin":
-            menu = st.radio("MENU", ["📝 Nowe Zamówienie", "⚙️ Panel Realizacji (Admin)", "👥 Zarządzanie Kontami", "🔎 Historia i Szukaj"])
+            # DODAŁEM NOWĄ POZYCJĘ W MENU
+            menu = st.radio("MENU", [
+                "📝 Nowe Zamówienie", 
+                "⚙️ Panel Realizacji (Admin)", 
+                "📊 Statystyki i Raporty", 
+                "👥 Zarządzanie Kontami", 
+                "🔎 Historia i Szukaj"
+            ])
         else:
             menu = st.radio("MENU", ["📝 Nowe Zamówienie", "📋 Moje Aktywne", "🔎 Historia i Szukaj"])
             
@@ -180,6 +191,54 @@ else:
                         c3.link_button("📲 Wyślij (brak nr w bazie)", url_wa, use_container_width=True, help="Ten pracownik nie ma przypisanego numeru telefonu w bazie.")
 
     # =========================================================================
+    # ZAKŁADKA: STATYSTYKI I RAPORTY (NOWOŚĆ)
+    # =========================================================================
+    elif menu == "📊 Statystyki i Raporty":
+        st.title("📊 Przegląd i Statystyki")
+        st.caption("Analiza danych ze wszystkich zgłoszeń. Wciśnij CTRL+P, aby wydrukować tę stronę jako Raport PDF.")
+        
+        res_all = supabase.table("zamowienia").select("*").execute()
+        
+        if not res_all.data:
+            st.info("Brak danych do wygenerowania statystyk.")
+        else:
+            df = pd.DataFrame(res_all.data)
+            
+            # Kafelki (Metrics)
+            st.subheader("Wskaźniki ogólne")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Wszystkie pozycje", len(df))
+            c2.metric("Zrealizowane", len(df[df['status'] == 'Zrealizowane']))
+            c3.metric("Oczekujące", len(df[df['status'] == 'Oczekujące']))
+            
+            # Zliczanie pilnych
+            pilne_count = len(df[df['pilnosc'].str.contains("PILNE|KRYTYCZNE", na=False)])
+            c4.metric("Pilne / Krytyczne", pilne_count)
+            
+            st.divider()
+            
+            col_wykres1, col_wykres2 = st.columns(2)
+            
+            with col_wykres1:
+                st.subheader("🏗️ Ilość zamówień wg Projektu")
+                # Zliczamy zamówienia dla każdego projektu (usuwamy puste wartości)
+                projekty_counts = df[df['projekt'] != '']['projekt'].value_counts()
+                st.bar_chart(projekty_counts)
+                
+            with col_wykres2:
+                st.subheader("📌 Rozkład Statusów")
+                statusy_counts = df['status'].value_counts()
+                st.bar_chart(statusy_counts, color="#ffaa00")
+                
+            st.divider()
+            
+            st.subheader("🏆 TOP 10 Najczęściej Zamawianych Materiałów")
+            # Standaryzacja nazw (wielkie litery), żeby "Śruba" i "śruba" liczyły się razem
+            df['pozycja_czysta'] = df['pozycja'].str.capitalize().str.strip()
+            top_materialy = df['pozycja_czysta'].value_counts().head(10)
+            st.bar_chart(top_materialy, color="#00ff88")
+
+    # =========================================================================
     # ZAKŁADKA: ZARZĄDZANIE KONTAMI (ADMIN)
     # =========================================================================
     elif menu == "👥 Zarządzanie Kontami":
@@ -219,7 +278,7 @@ else:
         if res_pracownicy.data:
             for p in res_pracownicy.data:
                 with st.container(border=True):
-                    col_info, col_btn = st.columns([4, 1])
+                    col_info, col_btn = st.columns([5, 1])
                     rola_wyswietlana = p.get('rola') or "użytkownik"
                     tel_wyswietlany = p.get('telefon') or "Brak"
                     col_info.markdown(f"👤 Login: **{p['login']}** | 🔑 Hasło: `{p['haslo']}` | 🛡️ Rola: `{rola_wyswietlana}` | 📱 Tel: `{tel_wyswietlany}`")
@@ -288,16 +347,13 @@ else:
             col_wynik.success(f"Znaleziono wyników: **{len(wynik_szukania)}**")
             
             df = pd.DataFrame(wynik_szukania)
-            # Zmiana formatowania CSV dla polskiego Excela: separator to średnik, plus BOM dla polskich znaków (UTF-8)
             csv_data = '\ufeff'.encode('utf8') + df.to_csv(index=False, sep=';').encode('utf-8')
             col_pobierz.download_button("📥 Pobierz dla Excela", data=csv_data, file_name="historia_zamowien.csv", mime="text/csv")
             
             for r in wynik_szukania:
                 with st.container(border=True):
-                    # Tytuł zamówienia
                     st.markdown(f"### {r['pozycja']} ({r['ilosc']})")
                     
-                    # Pełne informacje w kolumnach
                     c_info1, c_info2 = st.columns(2)
                     c_info1.markdown(f"**Wymiary:** {r['wymiary'] if r['wymiary'] else '---'}")
                     c_info1.markdown(f"**Materiał:** {r['material'] if r['material'] else '---'}")
@@ -313,7 +369,6 @@ else:
                         
                     st.divider()
                     
-                    # Zarządzanie statusem na dole
                     col_s1, col_s2 = st.columns([3, 1])
                     
                     ikona = status_emoji.get(r['status'], "🔹")
@@ -322,7 +377,6 @@ else:
                     else:
                         col_s1.markdown(f"Status: **{ikona} {r['status']}**")
                     
-                    # Awaryjne przywracanie do żywych - widoczne tylko dla administratora
                     if st.session_state.rola == "admin" and r['status'] == "Zrealizowane":
                         if col_s2.button("🔄 Przywróć", key=f"revert_{r['id']}", help="Przywróci status tego zamówienia na 'Oczekujące'"):
                             supabase.table("zamowienia").update({
