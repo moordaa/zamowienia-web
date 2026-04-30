@@ -11,7 +11,7 @@ KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhk
 
 supabase: Client = create_client(URL, KEY)
 
-st.set_page_config(page_title="Zamówienia", page_icon="🛒", layout="wide") # Zmiana layoutu na 'wide' dla lepszego widoku wykresów
+st.set_page_config(page_title="Zamówienia", page_icon="🛒", layout="wide")
 
 if 'zalogowany' not in st.session_state:
     st.session_state.zalogowany = False
@@ -20,7 +20,6 @@ if 'zalogowany' not in st.session_state:
 
 # --- LOGOWANIE ---
 if not st.session_state.zalogowany:
-    # Wymuszamy wyśrodkowanie okna logowania mimo layout="wide"
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.title("🛒 ZAMÓWIENIA")
@@ -50,7 +49,6 @@ else:
         st.divider()
         
         if st.session_state.rola == "admin":
-            # DODAŁEM NOWĄ POZYCJĘ W MENU
             menu = st.radio("MENU", [
                 "📝 Nowe Zamówienie", 
                 "⚙️ Panel Realizacji (Admin)", 
@@ -96,6 +94,16 @@ else:
     if menu == "📝 Nowe Zamówienie":
         st.title("📝 Dodaj zamówienie")
         
+        # Pobieranie adminów do listy wyboru WhatsApp
+        admins_res = supabase.table("pracownicy").select("login, telefon").eq("rola", "admin").execute()
+        admin_phones = {}
+        if admins_res.data:
+            for a in admins_res.data:
+                if a.get('telefon'):
+                    admin_phones[a['login']] = a['telefon']
+                    
+        opcje_adminow = ["-- Nie wysyłaj --"] + list(admin_phones.keys())
+        
         with st.container(border=True):
             pozycja = st.text_input("🔧 Pozycja (np. Śruba zamkowa)")
             col1, col2 = st.columns(2)
@@ -107,6 +115,10 @@ else:
             pilnosc = col4.selectbox("🚨 Pilność", ["Normalna", "PILNE ⚡", "KRYTYCZNE 🛑"])
             
             projekt = st.text_input("🏗️ Projekt / Budowa / Cel")
+            
+            st.divider()
+            col_wa, _ = st.columns([1, 1])
+            powiadom_admina = col_wa.selectbox("📲 Powiadom admina (WhatsApp)", opcje_adminow, help="Wybierz administratora, do którego automatycznie wygeneruje się wiadomość o tym zamówieniu.")
             
             if st.button("WYŚLIJ ZAMÓWIENIE", type="primary", use_container_width=True):
                 if pozycja and ilosc:
@@ -123,9 +135,27 @@ else:
                     }).execute()
                     
                     st.balloons()
-                    st.success("✅ Zamówienie pomyślnie wysłane do realizacji! Za chwilę strona się odświeży...")
-                    time.sleep(2)
-                    st.rerun()
+                    st.success("✅ Zamówienie pomyślnie wysłane do realizacji!")
+                    
+                    if powiadom_admina != "-- Nie wysyłaj --":
+                        surowy_numer = admin_phones[powiadom_admina]
+                        czysty_numer = "".join(c for c in surowy_numer if c.isdigit())
+                        
+                        tresc = f"Cześć! Zgłosiłem nowe zamówienie z aplikacji:\n\n🔧 *{pozycja}* (Ilość: {ilosc})\n🚨 Pilność: {pilnosc}\n🏗️ Projekt: {projekt}\n👤 Od: {st.session_state.uzytkownik}"
+                        url_wa = f"https://wa.me/{czysty_numer}?text={urllib.parse.quote(tresc)}"
+                        
+                        st.info(f"Kliknij poniższy przycisk, aby wysłać powiadomienie do: **{powiadom_admina}**")
+                        
+                        c_link, c_refresh = st.columns(2)
+                        c_link.link_button("📲 Otwórz i wyślij WhatsApp", url_wa, use_container_width=True)
+                        if c_refresh.button("🔄 Wyczyść i dodaj kolejne", use_container_width=True):
+                            st.rerun()
+                        
+                        st.stop() # Zatrzymuje kod, żeby ekran nie zniknął automatycznie po 2 sekundach
+                    else:
+                        st.info("Za chwilę strona się odświeży...")
+                        time.sleep(2)
+                        st.rerun()
                 else:
                     st.error("Pola 'Pozycja' i 'Ilość' są obowiązkowe!")
 
@@ -191,7 +221,7 @@ else:
                         c3.link_button("📲 Wyślij (brak nr w bazie)", url_wa, use_container_width=True, help="Ten pracownik nie ma przypisanego numeru telefonu w bazie.")
 
     # =========================================================================
-    # ZAKŁADKA: STATYSTYKI I RAPORTY (NOWOŚĆ)
+    # ZAKŁADKA: STATYSTYKI I RAPORTY
     # =========================================================================
     elif menu == "📊 Statystyki i Raporty":
         st.title("📊 Przegląd i Statystyki")
@@ -204,14 +234,12 @@ else:
         else:
             df = pd.DataFrame(res_all.data)
             
-            # Kafelki (Metrics)
             st.subheader("Wskaźniki ogólne")
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Wszystkie pozycje", len(df))
             c2.metric("Zrealizowane", len(df[df['status'] == 'Zrealizowane']))
             c3.metric("Oczekujące", len(df[df['status'] == 'Oczekujące']))
             
-            # Zliczanie pilnych
             pilne_count = len(df[df['pilnosc'].str.contains("PILNE|KRYTYCZNE", na=False)])
             c4.metric("Pilne / Krytyczne", pilne_count)
             
@@ -221,7 +249,6 @@ else:
             
             with col_wykres1:
                 st.subheader("🏗️ Ilość zamówień wg Projektu")
-                # Zliczamy zamówienia dla każdego projektu (usuwamy puste wartości)
                 projekty_counts = df[df['projekt'] != '']['projekt'].value_counts()
                 st.bar_chart(projekty_counts)
                 
@@ -232,18 +259,25 @@ else:
                 
             st.divider()
             
-            st.subheader("🏆 TOP 10 Najczęściej Zamawianych Materiałów")
-            # Standaryzacja nazw (wielkie litery), żeby "Śruba" i "śruba" liczyły się razem
-            df['pozycja_czysta'] = df['pozycja'].str.capitalize().str.strip()
-            top_materialy = df['pozycja_czysta'].value_counts().head(10)
-            st.bar_chart(top_materialy, color="#00ff88")
+            col_wykres3, col_wykres4 = st.columns(2)
+            
+            with col_wykres3:
+                st.subheader("🏆 TOP 10 Najczęściej Zamawianych Materiałów")
+                df['pozycja_czysta'] = df['pozycja'].str.capitalize().str.strip()
+                top_materialy = df['pozycja_czysta'].value_counts().head(10)
+                st.bar_chart(top_materialy, color="#00ff88")
+                
+            with col_wykres4:
+                st.subheader("👤 Aktywność Pracowników (Kto najwięcej zgłasza)")
+                top_pracownicy = df['zgloszone_przez'].value_counts()
+                st.bar_chart(top_pracownicy, color="#0088ff")
 
     # =========================================================================
     # ZAKŁADKA: ZARZĄDZANIE KONTAMI (ADMIN)
     # =========================================================================
     elif menu == "👥 Zarządzanie Kontami":
         st.title("👥 Zarządzanie pracownikami")
-        st.caption("Dodawaj i usuwaj konta użytkowników mających dostęp do aplikacji.")
+        st.caption("Dodawaj, edytuj i usuwaj konta użytkowników mających dostęp do aplikacji.")
         
         with st.container(border=True):
             st.subheader("➕ Dodaj nowe konto")
@@ -289,6 +323,33 @@ else:
                             st.rerun()
                     else:
                         col_btn.caption("👑 Konto główne")
+                        
+                    with st.expander(f"✏️ Edytuj dane dla: {p['login']}"):
+                        czy_konto_glowne = (p['login'].lower() == "emil")
+                        
+                        e_col1, e_col2, e_col3, e_col4 = st.columns([2, 2, 2, 1])
+                        
+                        nowe_haslo_edit = e_col1.text_input("Nowe hasło", value=p['haslo'], key=f"edit_haslo_{p['login']}")
+                        nowy_telefon_edit = e_col2.text_input("Nowy telefon", value=p.get('telefon', ''), key=f"edit_tel_{p['login']}")
+                        
+                        index_roli = 1 if rola_wyswietlana == "admin" else 0
+                        nowa_rola_edit = e_col3.selectbox("Rola", ["użytkownik", "admin"], index=index_roli, disabled=czy_konto_glowne, key=f"edit_rola_{p['login']}")
+                        
+                        e_col4.write("")
+                        e_col4.write("")
+                        if e_col4.button("💾 Zapisz", key=f"save_edit_{p['login']}", type="primary", use_container_width=True):
+                            update_dane = {
+                                "haslo": nowe_haslo_edit,
+                                "telefon": nowy_telefon_edit
+                            }
+                            if not czy_konto_glowne:
+                                update_dane["rola"] = nowa_rola_edit
+                                
+                            supabase.table("pracownicy").update(update_dane).eq("login", p['login']).execute()
+                            
+                            st.success("Zaktualizowano profil!")
+                            time.sleep(1)
+                            st.rerun()
 
     # =========================================================================
     # ZAKŁADKA: MOJE AKTYWNE (ZWYKŁY UŻYTKOWNIK)
