@@ -206,6 +206,36 @@ else:
                     if r.get('zdjecie_url'):
                         with st.expander("🖼️ Zobacz załączone zdjęcie"):
                             st.image(r['zdjecie_url'], use_container_width=True)
+                            
+                    with st.expander("✏️ Edytuj szczegóły zamówienia"):
+                        e_col1, e_col2 = st.columns(2)
+                        edit_pozycja = e_col1.text_input("Pozycja", value=r['pozycja'], key=f"epoz_{r['id']}")
+                        edit_ilosc = e_col2.text_input("Ilość", value=r['ilosc'], key=f"eilo_{r['id']}")
+                        
+                        e_col3, e_col4 = st.columns(2)
+                        edit_wymiary = e_col3.text_input("Wymiary", value=r['wymiary'] or "", key=f"ewym_{r['id']}")
+                        edit_material = e_col4.text_input("Materiał", value=r['material'] or "", key=f"emat_{r['id']}")
+                        
+                        e_col5, e_col6 = st.columns(2)
+                        edit_projekt = e_col5.text_input("Projekt", value=r['projekt'] or "", key=f"eproj_{r['id']}")
+                        
+                        pilnosci_lista = ["Normalna", "PILNE ⚡", "KRYTYCZNE 🛑"]
+                        akt_pilnosc = r['pilnosc'] if r['pilnosc'] in pilnosci_lista else "Normalna"
+                        idx_pilnosc = pilnosci_lista.index(akt_pilnosc)
+                        edit_pilnosc = e_col6.selectbox("Pilność", pilnosci_lista, index=idx_pilnosc, key=f"epil_{r['id']}")
+                        
+                        if st.button("💾 Zapisz poprawki", key=f"esave_{r['id']}", type="primary"):
+                            supabase.table("zamowienia").update({
+                                "pozycja": edit_pozycja,
+                                "ilosc": edit_ilosc,
+                                "wymiary": edit_wymiary,
+                                "material": edit_material,
+                                "projekt": edit_projekt,
+                                "pilnosc": edit_pilnosc
+                            }).eq("id", r['id']).execute()
+                            st.success("Zapisano zmiany!")
+                            time.sleep(1)
+                            st.rerun()
                     
                     st.divider()
                     
@@ -218,7 +248,7 @@ else:
                     
                     c1, c2, c3 = st.columns([2, 1, 3])
                     
-                    if c1.button("💾 Zapisz zmiany", key=f"zapisz_{r['id']}", type="primary"):
+                    if c1.button("💾 Zapisz status", key=f"zapisz_{r['id']}", type="primary"):
                         supabase.table("zamowienia").update({
                             "status": nowy_status, 
                             "uwagi_admina": nowe_uwagi
@@ -376,11 +406,11 @@ else:
                             st.rerun()
 
     # =========================================================================
-    # ZAKŁADKA: MOJE AKTYWNE (ZWYKŁY UŻYTKOWNIK)
+    # ZAKŁADKA: MOJE AKTYWNE (ZWYKŁY UŻYTKOWNIK) - Z EDYCJĄ WŁASNYCH ZAMÓWIEŃ
     # =========================================================================
     elif menu == "📋 Moje Aktywne":
         st.title("📋 Aktywne Zamówienia")
-        st.caption("Tutaj widzisz statusy elementów, które zamówiłeś.")
+        st.caption("Tutaj widzisz statusy elementów, które zamówiłeś. Możesz edytować ich szczegóły do czasu realizacji.")
         
         res = supabase.table("zamowienia").select("*").eq("zgloszone_przez", st.session_state.uzytkownik).neq("status", "Zrealizowane").order("id", desc=True).execute()
         
@@ -396,13 +426,45 @@ else:
                         with st.expander("🖼️ Zobacz załączone zdjęcie"):
                             st.image(r['zdjecie_url'], use_container_width=True)
                             
+                    # --- EDYCJA DLA UŻYTKOWNIKA ---
+                    with st.expander("✏️ Edytuj swoje zamówienie"):
+                        e_col1, e_col2 = st.columns(2)
+                        edit_pozycja = e_col1.text_input("Pozycja", value=r['pozycja'], key=f"user_epoz_{r['id']}")
+                        edit_ilosc = e_col2.text_input("Ilość", value=r['ilosc'], key=f"user_eilo_{r['id']}")
+                        
+                        e_col3, e_col4 = st.columns(2)
+                        edit_wymiary = e_col3.text_input("Wymiary", value=r['wymiary'] or "", key=f"user_ewym_{r['id']}")
+                        edit_material = e_col4.text_input("Materiał", value=r['material'] or "", key=f"user_emat_{r['id']}")
+                        
+                        e_col5, e_col6 = st.columns(2)
+                        edit_projekt = e_col5.text_input("Projekt", value=r['projekt'] or "", key=f"user_eproj_{r['id']}")
+                        
+                        pilnosci_lista = ["Normalna", "PILNE ⚡", "KRYTYCZNE 🛑"]
+                        akt_pilnosc = r['pilnosc'] if r['pilnosc'] in pilnosci_lista else "Normalna"
+                        idx_pilnosc = pilnosci_lista.index(akt_pilnosc)
+                        edit_pilnosc = e_col6.selectbox("Pilność", pilnosci_lista, index=idx_pilnosc, key=f"user_epil_{r['id']}")
+                        
+                        if st.button("💾 Zapisz poprawki", key=f"user_esave_{r['id']}", type="primary"):
+                            supabase.table("zamowienia").update({
+                                "pozycja": edit_pozycja,
+                                "ilosc": edit_ilosc,
+                                "wymiary": edit_wymiary,
+                                "material": edit_material,
+                                "projekt": edit_projekt,
+                                "pilnosc": edit_pilnosc
+                            }).eq("id", r['id']).execute()
+                            st.success("Zapisano zmiany!")
+                            time.sleep(1)
+                            st.rerun()
+                    # ---------------------------------
+                            
                     render_status_alert(r['status'])
                     
                     if r.get('uwagi_admina'):
                         st.info(f"📝 Odpis Admina: {r['uwagi_admina']}")
 
     # =========================================================================
-    # ZAKŁADKA: WYSZUKIWARKA I HISTORIA 
+    # ZAKŁADKA: WYSZUKIWARKA I HISTORIA
     # =========================================================================
     elif menu == "🔎 Historia i Szukaj":
         st.title("🔎 Baza Zamówień i Raporty")
@@ -462,7 +524,7 @@ else:
                         
                     st.divider()
                     
-                    col_s1, col_s2 = st.columns([3, 1])
+                    col_s1, col_s2, col_s3 = st.columns([3, 1, 1])
                     
                     ikona = status_emoji.get(r['status'], "🔹")
                     if r['status'] == 'Zrealizowane':
@@ -470,13 +532,21 @@ else:
                     else:
                         col_s1.markdown(f"Status: **{ikona} {r['status']}**")
                     
-                    if st.session_state.rola == "admin" and r['status'] == "Zrealizowane":
-                        if col_s2.button("🔄 Przywróć", key=f"revert_{r['id']}", help="Przywróci status tego zamówienia na 'Oczekujące'"):
-                            supabase.table("zamowienia").update({
-                                "status": "Oczekujące",
-                                "uwagi_admina": r.get('uwagi_admina', '') + " [Przywrócono awaryjnie]"
-                            }).eq("id", r['id']).execute()
-                            st.rerun()
+                    if st.session_state.rola == "admin":
+                        if r['status'] == "Zrealizowane":
+                            if col_s2.button("🔄 Przywróć", key=f"revert_{r['id']}", help="Przywróci status tego zamówienia na 'Oczekujące'", use_container_width=True):
+                                supabase.table("zamowienia").update({
+                                    "status": "Oczekujące",
+                                    "uwagi_admina": r.get('uwagi_admina', '') + " [Przywrócono awaryjnie]"
+                                }).eq("id", r['id']).execute()
+                                st.rerun()
+                                
+                        with col_s3.popover("🗑️ Usuń", use_container_width=True):
+                            st.markdown("⚠️ **Czy na pewno?**")
+                            st.caption("Tej operacji nie można cofnąć.")
+                            if st.button("Tak, usuń", key=f"confirm_del_hist_{r['id']}", type="primary", use_container_width=True):
+                                supabase.table("zamowienia").delete().eq("id", r['id']).execute()
+                                st.rerun()
 
         else:
             st.warning("Brak wyników spełniających kryteria.")
