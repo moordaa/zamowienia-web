@@ -115,9 +115,11 @@ else:
             
             projekt = st.text_input("🏗️ Projekt / Budowa / Cel")
             
-            # WIDŻET APARATU
+            # APARAT NA ŻĄDANIE
             st.divider()
-            zdjecie = st.camera_input("📷 Zrób zdjęcie części / usterki (opcjonalnie)")
+            zdjecie = None
+            if st.toggle("📷 Włącz aparat, aby dodać zdjęcie"):
+                zdjecie = st.camera_input("Zrób zdjęcie części / usterki")
             
             st.divider()
             col_wa, _ = st.columns([1, 1])
@@ -125,18 +127,15 @@ else:
             
             if st.button("WYŚLIJ ZAMÓWIENIE", type="primary", use_container_width=True):
                 if pozycja and ilosc:
-                    # Obsługa wgrania zdjęcia do Supabase
                     zdjecie_public_url = ""
                     if zdjecie is not None:
                         with st.spinner("Wgrywanie zdjęcia..."):
                             nazwa_pliku = f"{int(time.time())}_{st.session_state.uzytkownik}.jpg"
-                            # Zapis zdjęcia do bucketu 'zdjecia_zamowien'
                             res_upload = supabase.storage.from_("zdjecia_zamowien").upload(
                                 path=nazwa_pliku,
                                 file=zdjecie.getvalue(),
                                 file_options={"content-type": "image/jpeg"}
                             )
-                            # Pobranie linku publicznego
                             zdjecie_public_url = supabase.storage.from_("zdjecia_zamowien").get_public_url(nazwa_pliku)
 
                     supabase.table("zamowienia").insert({
@@ -149,7 +148,7 @@ else:
                         "status": "Oczekujące",
                         "zgloszone_przez": st.session_state.uzytkownik,
                         "data_zgloszenia": str(datetime.today().date()),
-                        "zdjecie_url": zdjecie_public_url # Zapisanie linku w bazie
+                        "zdjecie_url": zdjecie_public_url 
                     }).execute()
                     
                     st.balloons()
@@ -204,7 +203,6 @@ else:
                     st.caption(f"📏 Wymiary: {r['wymiary']} | 🧱 Materiał: {r['material']} | 🏗️ Projekt: {r['projekt']}")
                     st.caption(f"👤 Zgłosił: **{r['zgloszone_przez']}** ({r['data_zgloszenia']})")
                     
-                    # Wyświetlanie zdjęcia
                     if r.get('zdjecie_url'):
                         with st.expander("🖼️ Zobacz załączone zdjęcie"):
                             st.image(r['zdjecie_url'], use_container_width=True)
