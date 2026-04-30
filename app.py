@@ -54,10 +54,16 @@ else:
                 "⚙️ Panel Realizacji (Admin)", 
                 "📊 Statystyki i Raporty", 
                 "👥 Zarządzanie Kontami", 
-                "🔎 Historia i Szukaj"
+                "🔎 Historia i Szukaj",
+                "📖 Instrukcja" # Dodano do menu Admina
             ])
         else:
-            menu = st.radio("MENU", ["📝 Nowe Zamówienie", "📋 Moje Aktywne", "🔎 Historia i Szukaj"])
+            menu = st.radio("MENU", [
+                "📝 Nowe Zamówienie", 
+                "📋 Moje Aktywne", 
+                "🔎 Historia i Szukaj",
+                "📖 Instrukcja" # Dodano do menu Użytkownika
+            ])
             
         st.divider()
         if st.button("🔄 Odśwież dane", use_container_width=True):
@@ -67,7 +73,6 @@ else:
             st.session_state.rola = "użytkownik"
             st.rerun()
 
-    # --- MAPOWANIE KOLORÓW STATUSÓW ---
     status_emoji = {
         "Oczekujące": "⏳",
         "Zamówione": "🚚",
@@ -115,7 +120,6 @@ else:
             
             projekt = st.text_input("🏗️ Projekt / Budowa / Cel")
             
-            # APARAT NA ŻĄDANIE
             st.divider()
             zdjecie = None
             if st.toggle("📷 Włącz aparat, aby dodać zdjęcie"):
@@ -170,7 +174,6 @@ else:
                         c_link.link_button("📲 Otwórz i wyślij WhatsApp", url_wa, use_container_width=True)
                         if c_refresh.button("🔄 Wyczyść i dodaj kolejne", use_container_width=True):
                             st.rerun()
-                        
                         st.stop()
                     else:
                         st.info("Za chwilę strona się odświeży...")
@@ -184,7 +187,7 @@ else:
     # =========================================================================
     elif menu == "⚙️ Panel Realizacji (Admin)":
         st.title("⚙️ Zarządzaj Zamówieniami")
-        st.caption("Lista wszystkich aktywnych zamówień. Zmieniaj statusy i wysyłaj powiadomienia WhatsApp.")
+        st.caption("Lista aktywnych zamówień. Możesz edytować statusy, dane zamówienia i wysyłać WhatsApp.")
         
         pracownicy_res = supabase.table("pracownicy").select("login, telefon").execute()
         baza_telefonow = {p['login']: p.get('telefon', '') for p in pracownicy_res.data} if pracownicy_res.data else {}
@@ -192,14 +195,13 @@ else:
         res = supabase.table("zamowienia").select("*").neq("status", "Zrealizowane").order("id", desc=True).execute()
         
         if not res.data:
-            st.success("Wszystkie zamówienia są zrealizowane! Brak aktywnych zgłoszeń.")
+            st.success("Wszystkie zamówienia są zrealizowane!")
         else:
             for r in res.data:
                 with st.container(border=True):
                     st.markdown(f"### {r['pozycja']} ({r['ilosc']})")
                     if "PILNE" in r['pilnosc'] or "KRYTYCZNE" in r['pilnosc']:
                         st.error(f"🚨 {r['pilnosc']}")
-                        
                     st.caption(f"📏 Wymiary: {r['wymiary']} | 🧱 Materiał: {r['material']} | 🏗️ Projekt: {r['projekt']}")
                     st.caption(f"👤 Zgłosił: **{r['zgloszone_przez']}** ({r['data_zgloszenia']})")
                     
@@ -211,342 +213,218 @@ else:
                         e_col1, e_col2 = st.columns(2)
                         edit_pozycja = e_col1.text_input("Pozycja", value=r['pozycja'], key=f"epoz_{r['id']}")
                         edit_ilosc = e_col2.text_input("Ilość", value=r['ilosc'], key=f"eilo_{r['id']}")
-                        
                         e_col3, e_col4 = st.columns(2)
                         edit_wymiary = e_col3.text_input("Wymiary", value=r['wymiary'] or "", key=f"ewym_{r['id']}")
                         edit_material = e_col4.text_input("Materiał", value=r['material'] or "", key=f"emat_{r['id']}")
-                        
                         e_col5, e_col6 = st.columns(2)
                         edit_projekt = e_col5.text_input("Projekt", value=r['projekt'] or "", key=f"eproj_{r['id']}")
-                        
                         pilnosci_lista = ["Normalna", "PILNE ⚡", "KRYTYCZNE 🛑"]
                         akt_pilnosc = r['pilnosc'] if r['pilnosc'] in pilnosci_lista else "Normalna"
                         idx_pilnosc = pilnosci_lista.index(akt_pilnosc)
                         edit_pilnosc = e_col6.selectbox("Pilność", pilnosci_lista, index=idx_pilnosc, key=f"epil_{r['id']}")
-                        
                         if st.button("💾 Zapisz poprawki", key=f"esave_{r['id']}", type="primary"):
                             supabase.table("zamowienia").update({
-                                "pozycja": edit_pozycja,
-                                "ilosc": edit_ilosc,
-                                "wymiary": edit_wymiary,
-                                "material": edit_material,
-                                "projekt": edit_projekt,
-                                "pilnosc": edit_pilnosc
+                                "pozycja": edit_pozycja, "ilosc": edit_ilosc, "wymiary": edit_wymiary, 
+                                "material": edit_material, "projekt": edit_projekt, "pilnosc": edit_pilnosc
                             }).eq("id", r['id']).execute()
                             st.success("Zapisano zmiany!")
                             time.sleep(1)
                             st.rerun()
                     
                     st.divider()
-                    
                     col_stat, col_uwg = st.columns([1, 2])
                     lista_statusow = ["Oczekujące", "Zamówione", "Niedostępne", "Zamiennik", "Zrealizowane"]
                     aktualny_index = lista_statusow.index(r['status']) if r['status'] in lista_statusow else 0
-                    
                     nowy_status = col_stat.selectbox("Status", lista_statusow, index=aktualny_index, key=f"stat_{r['id']}")
-                    nowe_uwagi = col_uwg.text_input("Notatka (np. numer paczki, jaki zamiennik)", value=r.get('uwagi_admina') or "", key=f"uwg_{r['id']}")
+                    nowe_uwagi = col_uwg.text_input("Notatka", value=r.get('uwagi_admina') or "", key=f"uwg_{r['id']}")
                     
                     c1, c2, c3 = st.columns([2, 1, 3])
-                    
                     if c1.button("💾 Zapisz status", key=f"zapisz_{r['id']}", type="primary"):
-                        supabase.table("zamowienia").update({
-                            "status": nowy_status, 
-                            "uwagi_admina": nowe_uwagi
-                        }).eq("id", r['id']).execute()
-                        st.toast("Zaktualizowano status w bazie!")
+                        supabase.table("zamowienia").update({"status": nowy_status, "uwagi_admina": nowe_uwagi}).eq("id", r['id']).execute()
+                        st.toast("Zaktualizowano status!")
                         st.rerun()
-                        
                     if c2.button("🗑️ Usuń", key=f"del_{r['id']}", type="secondary"):
                         supabase.table("zamowienia").delete().eq("id", r['id']).execute()
                         st.rerun()
-
-                    tresc_wa = f"Cześć! Twoje zamówienie na '{r['pozycja']}' zmieniło status na: *{r['status']}*."
-                    if r.get('uwagi_admina'):
-                        tresc_wa += f" Notatka: {r['uwagi_admina']}"
-                    
                     surowy_numer = baza_telefonow.get(r['zgloszone_przez'])
-                    
                     if surowy_numer:
                         czysty_numer = "".join(cyfra for cyfra in surowy_numer if cyfra.isdigit())
+                        tresc_wa = f"Cześć! Twoje zamówienie na '{r['pozycja']}' zmieniło status na: *{r['status']}*."
                         url_wa = f"https://wa.me/{czysty_numer}?text={urllib.parse.quote(tresc_wa)}"
                         c3.link_button("📲 Wyślij WhatsApp", url_wa, use_container_width=True)
-                    else:
-                        url_wa = f"https://wa.me/?text={urllib.parse.quote(tresc_wa)}"
-                        c3.link_button("📲 Wyślij (brak nr w bazie)", url_wa, use_container_width=True, help="Ten pracownik nie ma przypisanego numeru telefonu w bazie.")
 
     # =========================================================================
     # ZAKŁADKA: STATYSTYKI I RAPORTY
     # =========================================================================
     elif menu == "📊 Statystyki i Raporty":
         st.title("📊 Przegląd i Statystyki")
-        st.caption("Analiza danych ze wszystkich zgłoszeń. Wciśnij CTRL+P, aby wydrukować tę stronę jako Raport PDF.")
-        
         res_all = supabase.table("zamowienia").select("*").execute()
-        
-        if not res_all.data:
-            st.info("Brak danych do wygenerowania statystyk.")
-        else:
+        if res_all.data:
             df = pd.DataFrame(res_all.data)
-            
-            st.subheader("Wskaźniki ogólne")
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Wszystkie pozycje", len(df))
             c2.metric("Zrealizowane", len(df[df['status'] == 'Zrealizowane']))
             c3.metric("Oczekujące", len(df[df['status'] == 'Oczekujące']))
-            
             pilne_count = len(df[df['pilnosc'].str.contains("PILNE|KRYTYCZNE", na=False)])
             c4.metric("Pilne / Krytyczne", pilne_count)
-            
             st.divider()
-            
             col_wykres1, col_wykres2 = st.columns(2)
-            
             with col_wykres1:
-                st.subheader("🏗️ Ilość zamówień wg Projektu")
-                projekty_counts = df[df['projekt'] != '']['projekt'].value_counts()
-                st.bar_chart(projekty_counts)
-                
+                st.subheader("🏗️ Zamówienia wg Projektu")
+                st.bar_chart(df[df['projekt'] != '']['projekt'].value_counts())
             with col_wykres2:
                 st.subheader("📌 Rozkład Statusów")
-                statusy_counts = df['status'].value_counts()
-                st.bar_chart(statusy_counts, color="#ffaa00")
-                
+                st.bar_chart(df['status'].value_counts(), color="#ffaa00")
             st.divider()
-            
             col_wykres3, col_wykres4 = st.columns(2)
-            
             with col_wykres3:
-                st.subheader("🏆 TOP 10 Najczęściej Zamawianych Materiałów")
+                st.subheader("🏆 TOP 10 Materiałów")
                 df['pozycja_czysta'] = df['pozycja'].str.capitalize().str.strip()
-                top_materialy = df['pozycja_czysta'].value_counts().head(10)
-                st.bar_chart(top_materialy, color="#00ff88")
-                
+                st.bar_chart(df['pozycja_czysta'].value_counts().head(10), color="#00ff88")
             with col_wykres4:
-                st.subheader("👤 Aktywność Pracowników (Kto najwięcej zgłasza)")
-                top_pracownicy = df['zgloszone_przez'].value_counts()
-                st.bar_chart(top_pracownicy, color="#0088ff")
+                st.subheader("👤 Aktywność Pracowników")
+                st.bar_chart(df['zgloszone_przez'].value_counts(), color="#0088ff")
 
     # =========================================================================
     # ZAKŁADKA: ZARZĄDZANIE KONTAMI (ADMIN)
     # =========================================================================
     elif menu == "👥 Zarządzanie Kontami":
         st.title("👥 Zarządzanie pracownikami")
-        st.caption("Dodawaj, edytuj i usuwaj konta użytkowników mających dostęp do aplikacji.")
-        
         with st.container(border=True):
             st.subheader("➕ Dodaj nowe konto")
             c1, c2, c3, c4 = st.columns(4)
             nowy_login = c1.text_input("Login")
             nowe_haslo = c2.text_input("Hasło")
             nowa_rola = c3.selectbox("Rola", ["użytkownik", "admin"])
-            nowy_telefon = c4.text_input("Telefon (z kierunkowym np. 48123456789)")
-            
+            nowy_telefon = c4.text_input("Telefon (np. 48123456789)")
             if st.button("Utwórz konto", type="primary"):
                 if nowy_login and nowe_haslo:
-                    czy_istnieje = supabase.table("pracownicy").select("login").eq("login", nowy_login).execute()
-                    if czy_istnieje.data:
-                        st.error("Pracownik o takim loginie już istnieje w bazie!")
-                    else:
-                        supabase.table("pracownicy").insert({
-                            "login": nowy_login,
-                            "haslo": nowe_haslo,
-                            "rola": nowa_rola,
-                            "telefon": nowy_telefon
-                        }).execute()
-                        st.success(f"Dodano użytkownika {nowy_login}!")
-                        time.sleep(1)
-                        st.rerun()
-                else:
-                    st.warning("Uzupełnij login i hasło!")
+                    supabase.table("pracownicy").insert({"login": nowy_login, "haslo": nowe_haslo, "rola": nowa_rola, "telefon": nowy_telefon}).execute()
+                    st.success("Dodano użytkownika!")
+                    time.sleep(1); st.rerun()
 
         st.divider()
-        st.subheader("📋 Lista aktywnych kont")
         res_pracownicy = supabase.table("pracownicy").select("*").order("login").execute()
-        
-        if res_pracownicy.data:
-            for p in res_pracownicy.data:
-                with st.container(border=True):
-                    col_info, col_btn = st.columns([5, 1])
-                    rola_wyswietlana = p.get('rola') or "użytkownik"
-                    tel_wyswietlany = p.get('telefon') or "Brak"
-                    col_info.markdown(f"👤 Login: **{p['login']}** | 🔑 Hasło: `{p['haslo']}` | 🛡️ Rola: `{rola_wyswietlana}` | 📱 Tel: `{tel_wyswietlany}`")
-                    
-                    if p['login'].lower() != "emil":
-                        if col_btn.button("🗑️ Usuń", key=f"del_user_{p['login']}", type="secondary"):
-                            supabase.table("pracownicy").delete().eq("login", p['login']).execute()
-                            st.rerun()
-                    else:
-                        col_btn.caption("👑 Konto główne")
-                        
-                    with st.expander(f"✏️ Edytuj dane dla: {p['login']}"):
-                        czy_konto_glowne = (p['login'].lower() == "emil")
-                        
-                        e_col1, e_col2, e_col3, e_col4 = st.columns([2, 2, 2, 1])
-                        
-                        nowe_haslo_edit = e_col1.text_input("Nowe hasło", value=p['haslo'], key=f"edit_haslo_{p['login']}")
-                        nowy_telefon_edit = e_col2.text_input("Nowy telefon", value=p.get('telefon', ''), key=f"edit_tel_{p['login']}")
-                        
-                        index_roli = 1 if rola_wyswietlana == "admin" else 0
-                        nowa_rola_edit = e_col3.selectbox("Rola", ["użytkownik", "admin"], index=index_roli, disabled=czy_konto_glowne, key=f"edit_rola_{p['login']}")
-                        
-                        e_col4.write("")
-                        e_col4.write("")
-                        if e_col4.button("💾 Zapisz", key=f"save_edit_{p['login']}", type="primary", use_container_width=True):
-                            update_dane = {
-                                "haslo": nowe_haslo_edit,
-                                "telefon": nowy_telefon_edit
-                            }
-                            if not czy_konto_glowne:
-                                update_dane["rola"] = nowa_rola_edit
-                                
-                            supabase.table("pracownicy").update(update_dane).eq("login", p['login']).execute()
-                            
-                            st.success("Zaktualizowano profil!")
-                            time.sleep(1)
-                            st.rerun()
+        for p in res_pracownicy.data:
+            with st.container(border=True):
+                col_info, col_btn = st.columns([5, 1])
+                rola_w = p.get('rola') or "użytkownik"
+                col_info.markdown(f"👤 Login: **{p['login']}** | 🔑 Hasło: `{p['haslo']}` | 🛡️ Rola: `{rola_w}` | 📱 Tel: `{p.get('telefon','')}`")
+                if p['login'].lower() != "emil":
+                    if col_btn.button("🗑️ Usuń", key=f"del_user_{p['login']}", type="secondary"):
+                        supabase.table("pracownicy").delete().eq("login", p['login']).execute()
+                        st.rerun()
+                with st.expander(f"✏️ Edytuj: {p['login']}"):
+                    e_c1, e_c2, e_c3, e_c4 = st.columns([2, 2, 2, 1])
+                    n_haslo = e_c1.text_input("Hasło", value=p['haslo'], key=f"h_{p['login']}")
+                    n_tel = e_c2.text_input("Telefon", value=p.get('telefon', ''), key=f"t_{p['login']}")
+                    n_rola = e_c3.selectbox("Rola", ["użytkownik", "admin"], index=(1 if rola_w == "admin" else 0), disabled=(p['login'].lower() == "emil"), key=f"r_{p['login']}")
+                    if e_c4.button("💾 Zapisz", key=f"s_{p['login']}", type="primary"):
+                        upd = {"haslo": n_haslo, "telefon": n_tel}
+                        if p['login'].lower() != "emil": upd["rola"] = n_rola
+                        supabase.table("pracownicy").update(upd).eq("login", p['login']).execute()
+                        st.rerun()
 
     # =========================================================================
-    # ZAKŁADKA: MOJE AKTYWNE (ZWYKŁY UŻYTKOWNIK) - Z EDYCJĄ WŁASNYCH ZAMÓWIEŃ
+    # ZAKŁADKA: MOJE AKTYWNE (UŻYTKOWNIK)
     # =========================================================================
     elif menu == "📋 Moje Aktywne":
-        st.title("📋 Aktywne Zamówienia")
-        st.caption("Tutaj widzisz statusy elementów, które zamówiłeś. Możesz edytować ich szczegóły do czasu realizacji.")
-        
+        st.title("📋 Twoje Aktywne Zamówienia")
         res = supabase.table("zamowienia").select("*").eq("zgloszone_przez", st.session_state.uzytkownik).neq("status", "Zrealizowane").order("id", desc=True).execute()
-        
         if not res.data:
-            st.info("Nie masz obecnie żadnych oczekujących zamówień.")
+            st.info("Brak oczekujących zamówień.")
         else:
             for r in res.data:
                 with st.container(border=True):
-                    st.markdown(f"### {r['pozycja']} (Ilość: {r['ilosc']})")
-                    st.caption(f"🏗️ {r['projekt']} | 📅 {r['data_zgloszenia']}")
-                    
+                    st.markdown(f"### {r['pozycja']} ({r['ilosc']})")
                     if r.get('zdjecie_url'):
-                        with st.expander("🖼️ Zobacz załączone zdjęcie"):
-                            st.image(r['zdjecie_url'], use_container_width=True)
-                            
-                    # --- EDYCJA DLA UŻYTKOWNIKA ---
-                    with st.expander("✏️ Edytuj swoje zamówienie"):
-                        e_col1, e_col2 = st.columns(2)
-                        edit_pozycja = e_col1.text_input("Pozycja", value=r['pozycja'], key=f"user_epoz_{r['id']}")
-                        edit_ilosc = e_col2.text_input("Ilość", value=r['ilosc'], key=f"user_eilo_{r['id']}")
-                        
-                        e_col3, e_col4 = st.columns(2)
-                        edit_wymiary = e_col3.text_input("Wymiary", value=r['wymiary'] or "", key=f"user_ewym_{r['id']}")
-                        edit_material = e_col4.text_input("Materiał", value=r['material'] or "", key=f"user_emat_{r['id']}")
-                        
-                        e_col5, e_col6 = st.columns(2)
-                        edit_projekt = e_col5.text_input("Projekt", value=r['projekt'] or "", key=f"user_eproj_{r['id']}")
-                        
-                        pilnosci_lista = ["Normalna", "PILNE ⚡", "KRYTYCZNE 🛑"]
-                        akt_pilnosc = r['pilnosc'] if r['pilnosc'] in pilnosci_lista else "Normalna"
-                        idx_pilnosc = pilnosci_lista.index(akt_pilnosc)
-                        edit_pilnosc = e_col6.selectbox("Pilność", pilnosci_lista, index=idx_pilnosc, key=f"user_epil_{r['id']}")
-                        
-                        if st.button("💾 Zapisz poprawki", key=f"user_esave_{r['id']}", type="primary"):
-                            supabase.table("zamowienia").update({
-                                "pozycja": edit_pozycja,
-                                "ilosc": edit_ilosc,
-                                "wymiary": edit_wymiary,
-                                "material": edit_material,
-                                "projekt": edit_projekt,
-                                "pilnosc": edit_pilnosc
-                            }).eq("id", r['id']).execute()
-                            st.success("Zapisano zmiany!")
-                            time.sleep(1)
+                        with st.expander("🖼️ Zobacz zdjęcie"): st.image(r['zdjecie_url'], use_container_width=True)
+                    with st.expander("✏️ Edytuj zamówienie"):
+                        e_c1, e_c2 = st.columns(2)
+                        u_poz = e_c1.text_input("Pozycja", value=r['pozycja'], key=f"up_{r['id']}")
+                        u_ilo = e_c2.text_input("Ilość", value=r['ilosc'], key=f"ui_{r['id']}")
+                        if st.button("💾 Zapisz poprawki", key=f"us_{r['id']}", type="primary"):
+                            supabase.table("zamowienia").update({"pozycja": u_poz, "ilosc": u_ilo}).eq("id", r['id']).execute()
                             st.rerun()
-                    # ---------------------------------
-                            
                     render_status_alert(r['status'])
-                    
-                    if r.get('uwagi_admina'):
-                        st.info(f"📝 Odpis Admina: {r['uwagi_admina']}")
 
     # =========================================================================
     # ZAKŁADKA: WYSZUKIWARKA I HISTORIA
     # =========================================================================
     elif menu == "🔎 Historia i Szukaj":
-        st.title("🔎 Baza Zamówień i Raporty")
-        
+        st.title("🔎 Baza Zamówień")
         res_all = supabase.table("zamowienia").select("projekt, zgloszone_przez").execute()
         projekty = sorted(list(set([x['projekt'] for x in res_all.data if x['projekt']])))
         osoby = sorted(list(set([x['zgloszone_przez'] for x in res_all.data if x['zgloszone_przez']])))
-        
         with st.container(border=True):
-            f_slowo = st.text_input("🔍 Szukaj po nazwie lub uwagach...")
-            col1, col2, col3 = st.columns(3)
-            f_proj = col1.selectbox("🏗️ Projekt", ["-- Wszystkie --"] + projekty)
-            f_kto = col2.selectbox("👤 Kto", ["-- Wszyscy --"] + osoby)
-            f_status = col3.selectbox("📌 Status", ["-- Wszystkie --", "Oczekujące", "Zamówione", "Niedostępne", "Zamiennik", "Zrealizowane"])
-            
+            f_slowo = st.text_input("🔍 Szukaj...")
+            c1, c2, c3 = st.columns(3)
+            f_proj = c1.selectbox("🏗️ Projekt", ["-- Wszystkie --"] + projekty)
+            f_kto = c2.selectbox("👤 Kto", ["-- Wszyscy --"] + osoby)
+            f_status = c3.selectbox("📌 Status", ["-- Wszystkie --", "Oczekujące", "Zamówione", "Niedostępne", "Zamiennik", "Zrealizowane"])
             q = supabase.table("zamowienia").select("*")
             if f_proj != "-- Wszystkie --": q = q.eq("projekt", f_proj)
             if f_kto != "-- Wszyscy --": q = q.eq("zgloszone_przez", f_kto)
             if f_status != "-- Wszystkie --": q = q.eq("status", f_status)
-            
-            wynik_szukania = q.order("id", desc=True).execute().data
-            
+            wynik = q.order("id", desc=True).execute().data
             if f_slowo.strip():
-                f_slowo = f_slowo.lower()
-                wynik_szukania = [x for x in wynik_szukania if f_slowo in x['pozycja'].lower() or f_slowo in (x.get('uwagi_admina') or '').lower()]
-            
-        st.divider()
+                wynik = [x for x in wynik if f_slowo.lower() in x['pozycja'].lower()]
         
-        if wynik_szukania:
-            col_wynik, col_pobierz = st.columns([3, 1])
-            col_wynik.success(f"Znaleziono wyników: **{len(wynik_szukania)}**")
-            
-            df = pd.DataFrame(wynik_szukania)
-            csv_data = '\ufeff'.encode('utf8') + df.to_csv(index=False, sep=';').encode('utf-8')
-            col_pobierz.download_button("📥 Pobierz dla Excela", data=csv_data, file_name="historia_zamowien.csv", mime="text/csv")
-            
-            for r in wynik_szukania:
+        if wynik:
+            df_res = pd.DataFrame(wynik)
+            csv = '\ufeff'.encode('utf8') + df_res.to_csv(index=False, sep=';').encode('utf-8')
+            st.download_button("📥 Pobierz dla Excela", data=csv, file_name="historia.csv", mime="text/csv")
+            for r in wynik:
                 with st.container(border=True):
                     st.markdown(f"### {r['pozycja']} ({r['ilosc']})")
-                    
-                    c_info1, c_info2 = st.columns(2)
-                    c_info1.markdown(f"**Wymiary:** {r['wymiary'] if r['wymiary'] else '---'}")
-                    c_info1.markdown(f"**Materiał:** {r['material'] if r['material'] else '---'}")
-                    
-                    pilnosc_display = f"🚨 {r['pilnosc']}" if "PILNE" in r['pilnosc'] or "KRYTYCZNE" in r['pilnosc'] else r['pilnosc']
-                    c_info2.markdown(f"**Pilność:** {pilnosc_display}")
-                    c_info2.markdown(f"**Projekt:** 🏗️ {r['projekt']}")
-                    
-                    st.caption(f"👤 Zgłosił(a): {r['zgloszone_przez']} | 📅 {r['data_zgloszenia']}")
-                    
                     if r.get('zdjecie_url'):
-                        with st.expander("🖼️ Zobacz załączone zdjęcie"):
-                            st.image(r['zdjecie_url'], use_container_width=True)
-                            
-                    if r.get('uwagi_admina'):
-                        st.info(f"📝 Notatka Admina: {r['uwagi_admina']}")
-                        
-                    st.divider()
-                    
-                    col_s1, col_s2, col_s3 = st.columns([3, 1, 1])
-                    
-                    ikona = status_emoji.get(r['status'], "🔹")
-                    if r['status'] == 'Zrealizowane':
-                        col_s1.success(f"Status: **{ikona} {r['status']}**")
-                    else:
-                        col_s1.markdown(f"Status: **{ikona} {r['status']}**")
-                    
+                        with st.expander("🖼️ Zobacz zdjęcie"): st.image(r['zdjecie_url'], use_container_width=True)
+                    render_status_alert(r['status'])
                     if st.session_state.rola == "admin":
-                        if r['status'] == "Zrealizowane":
-                            if col_s2.button("🔄 Przywróć", key=f"revert_{r['id']}", help="Przywróci status tego zamówienia na 'Oczekujące'", use_container_width=True):
-                                supabase.table("zamowienia").update({
-                                    "status": "Oczekujące",
-                                    "uwagi_admina": r.get('uwagi_admina', '') + " [Przywrócono awaryjnie]"
-                                }).eq("id", r['id']).execute()
-                                st.rerun()
-                                
-                        with col_s3.popover("🗑️ Usuń", use_container_width=True):
-                            st.markdown("⚠️ **Czy na pewno?**")
-                            st.caption("Tej operacji nie można cofnąć.")
-                            if st.button("Tak, usuń", key=f"confirm_del_hist_{r['id']}", type="primary", use_container_width=True):
-                                supabase.table("zamowienia").delete().eq("id", r['id']).execute()
-                                st.rerun()
+                        c_s1, c_s2 = st.columns([4, 1])
+                        if r['status'] == "Zrealizowane" and c_s1.button("🔄 Przywróć", key=f"rev_{r['id']}"):
+                            supabase.table("zamowienia").update({"status": "Oczekujące"}).eq("id", r['id']).execute(); st.rerun()
+                        with c_s2.popover("🗑️ Usuń"):
+                            if st.button("Tak, usuń", key=f"cdel_{r['id']}", type="primary"):
+                                supabase.table("zamowienia").delete().eq("id", r['id']).execute(); st.rerun()
 
-        else:
-            st.warning("Brak wyników spełniających kryteria.")
+    # =========================================================================
+    # ZAKŁADKA: INSTRUKCJA (NOWOŚĆ W MENU)
+    # =========================================================================
+    elif menu == "📖 Instrukcja":
+        st.title("📖 Instrukcja Obsługi Systemu")
+        
+        st.info("Witaj w systemie zamówień materiałowych! Poniżej znajdziesz krótką ściągę, jak sprawnie korzystać z aplikacji.")
+        
+        col_inst, _ = st.columns([2, 1])
+        with col_inst:
+            st.markdown("""
+            ### 1️⃣ Logowanie
+            *   Używaj swojego indywidualnego loginu i hasła.
+            *   Pamiętaj o wylogowaniu się, jeśli korzystasz z ogólnodostępnego komputera.
+
+            ### 2️⃣ Jak dodać zamówienie?
+            *   Wejdź w **📝 Nowe Zamówienie**.
+            *   Podaj nazwę przedmiotu, ilość, wymiary i materiał.
+            *   **Wybierz Projekt** – to ułatwia adminowi przypisanie kosztów.
+            *   **📷 Zdjęcie:** Jeśli element jest nietypowy, włącz aparat i zrób zdjęcie.
+            *   **📲 WhatsApp:** Możesz od razu wysłać wiadomość do administratora o nowym zgłoszeniu.
+
+            ### 3️⃣ Twoje zamówienia i edycja
+            *   W zakładce **📋 Moje Aktywne** sprawdzisz status swoich zgłoszeń.
+            *   **Edycja:** Dopóki zamówienie nie jest zrealizowane, możesz poprawić dane (przycisk **✏️ Edytuj**).
+
+            ### 4️⃣ Statusy (co oznaczają ikony?)
+            *   ⏳ **Oczekujące**: Admin widzi zgłoszenie, jeszcze nie zamówił.
+            *   🚚 **Zamówione**: Towar jest kupiony i w drodze do firmy.
+            *   ❌ **Niedostępne**: Brak towaru w hurtowni (sprawdź notatkę admina!).
+            *   🔄 **Zamiennik**: Kupiono coś podobnego (sprawdź notatkę!).
+            *   ✅ **Zrealizowane**: Towar jest do odbioru w pakamerze.
+
+            ### 5️⃣ Historia i Szukaj
+            *   Możesz przeglądać stare zamówienia i pobierać je do pliku Excel.
+
+            ---
+            💡 **Wskazówka:** Na telefonie dodaj stronę do **ekranu głównego**, aby mieć do niej szybki dostęp jak do zwykłej aplikacji!
+            """)
+            st.success("W razie pytań lub problemów technicznych kontaktuj się z Emilem.")
