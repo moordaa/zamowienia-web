@@ -3,7 +3,7 @@ from supabase import create_client, Client
 from datetime import datetime
 import pandas as pd
 import time
-import urllib.parse  # <-- Dodane do generowania linków WhatsApp
+import urllib.parse
 
 # --- KONFIGURACJA ---
 URL = "https://hdmptdcuqxqutfgrgmrj.supabase.co"
@@ -67,7 +67,6 @@ else:
         "Zrealizowane": "✅"
     }
 
-    # Pomocnicza funkcja do wyświetlania pokolorowanego statusu (UI/UX)
     def render_status_alert(status_text):
         ikona = status_emoji.get(status_text, "🔹")
         msg = f"**Status:** {ikona} {status_text}"
@@ -126,6 +125,10 @@ else:
         st.title("⚙️ Zarządzaj Zamówieniami")
         st.caption("Lista wszystkich aktywnych zamówień. Zmieniaj statusy i wysyłaj powiadomienia WhatsApp.")
         
+        # Pobieramy najpierw wszystkich pracowników, by mieć ich numery telefonów
+        pracownicy_res = supabase.table("pracownicy").select("login, telefon").execute()
+        baza_telefonow = {p['login']: p.get('telefon', '') for p in pracownicy_res.data} if pracownicy_res.data else {}
+
         res = supabase.table("zamowienia").select("*").neq("status", "Zrealizowane").order("id", desc=True).execute()
         
         if not res.data:
@@ -169,8 +172,17 @@ else:
                     tresc_wa = f"Cześć! Twoje zamówienie na '{r['pozycja']}' zmieniło status na: *{r['status']}*."
                     if r.get('uwagi_admina'):
                         tresc_wa += f" Notatka: {r['uwagi_admina']}"
-                    url_wa = f"https://wa.me/?text={urllib.parse.quote(tresc_wa)}"
-                    c3.link_button("📲 Wyślij WhatsApp", url_wa, use_container_width=True)
+                    
+                    # Pobieranie i czyszczenie numeru telefonu (WhatsApp wymaga samych cyfr, najlepiej z prefiksem np. 48)
+                    surowy_numer = baza_telefonow.get(r['zgloszone_przez'])
+                    
+                    if surowy_numer:
+                        czysty_numer = "".join(cyfra for cyfra in surowy_numer if cyfra.isdigit())
+                        url_wa = f"https://wa.me/{czysty_numer}?text={urllib.parse.quote(tresc_wa)}"
+                        c3.link_button("📲 Wyślij WhatsApp", url_wa, use_container_width=True)
+                    else:
+                        url_wa = f"https://wa.me/?text={urllib.parse.quote(tresc_wa)}"
+                        c3.link_button("📲 Wyślij (brak nr w bazie)", url_wa, use_container_width=True, help="Ten pracownik nie ma przypisanego numeru telefonu w bazie.")
 
     # =========================================================================
     # ZAKŁADKA: ZARZĄDZANIE KONTAMI (ADMIN)
@@ -181,10 +193,11 @@ else:
         
         with st.container(border=True):
             st.subheader("➕ Dodaj nowe konto")
-            c1, c2, c3 = st.columns(3)
-            nowy_login = c1.text_input("Wpisz Login")
-            nowe_haslo = c2.text_input("Wpisz Hasło")
-            nowa_rola = c3.selectbox("Wybierz Rolę", ["użytkownik", "admin"])
+            c1, c2, c3, c4 = st.columns(4)
+            nowy_login = c1.text_input("Login")
+            nowe_haslo = c2.text_input("Hasło")
+            nowa_rola = c3.selectbox("Rola", ["użytkownik", "admin"])
+            nowy_telefon = c4.text_input("Telefon (z kierunkowym np. 48123456789)")
             
             if st.button("Utwórz konto", type="primary"):
                 if nowy_login and nowe_haslo:
@@ -195,7 +208,8 @@ else:
                         supabase.table("pracownicy").insert({
                             "login": nowy_login,
                             "haslo": nowe_haslo,
-                            "rola": nowa_rola
+                            "rola": nowa_rola,
+                            "telefon": nowy_telefon  # Zapisujemy telefon
                         }).execute()
                         st.success(f"Dodano użytkownika {nowy_login}!")
                         time.sleep(1)
@@ -212,7 +226,8 @@ else:
                 with st.container(border=True):
                     col_info, col_btn = st.columns([4, 1])
                     rola_wyswietlana = p.get('rola') or "użytkownik"
-                    col_info.markdown(f"👤 Login: **{p['login']}** | 🔑 Hasło: `{p['haslo']}` | 🛡️ Rola: `{rola_wyswietlana}`")
+                    tel_wyswietlany = p.get('telefon') or "Brak"
+                    col_info.markdown(f"👤 Login: **{p['login']}** | 🔑 Hasło: `{p['haslo']}` | 🛡️ Rola: `{rola_wyswietlana}` | 📱 Tel: `{tel_wyswietlany}`")
                     
                     if p['login'].lower() != "emil":
                         if col_btn.button("🗑️ Usuń", key=f"del_user_{p['login']}", type="secondary"):
@@ -238,14 +253,13 @@ else:
                     st.markdown(f"### {r['pozycja']} (Ilość: {r['ilosc']})")
                     st.caption(f"🏗️ {r['projekt']} | 📅 {r['data_zgloszenia']}")
                     
-                    # Użycie nowej funkcji renderującej kolory
                     render_status_alert(r['status'])
                     
                     if r.get('uwagi_admina'):
                         st.info(f"📝 Odpis Admina: {r['uwagi_admina']}")
 
     # =========================================================================
-    # ZAKŁADKA: WYSZUKIWARKA I HISTORIA (Z AUTO-ODŚWIEŻANIEM I CSV)
+    # ZAKŁADKA: WYSZUKIWARKA I HISTORIA 
     # =========================================================================
     elif menu == "🔎 Historia i Szukaj":
         st.title("🔎 Baza Zamówień i Raporty")
@@ -255,14 +269,12 @@ else:
         osoby = sorted(list(set([x['zgloszone_przez'] for x in res_all.data if x['zgloszone_przez']])))
         
         with st.container(border=True):
-            # Brak przycisku SZUKAJ - interfejs reaguje od razu na zmianę
             f_slowo = st.text_input("🔍 Szukaj po nazwie lub uwagach...")
             col1, col2, col3 = st.columns(3)
             f_proj = col1.selectbox("🏗️ Projekt", ["-- Wszystkie --"] + projekty)
             f_kto = col2.selectbox("👤 Kto", ["-- Wszyscy --"] + osoby)
             f_status = col3.selectbox("📌 Status", ["-- Wszystkie --", "Oczekujące", "Zamówione", "Niedostępne", "Zamiennik", "Zrealizowane"])
             
-            # Zapytanie wykonuje się automatycznie przy każdej zmianie widgetu powyżej
             q = supabase.table("zamowienia").select("*")
             if f_proj != "-- Wszystkie --": q = q.eq("projekt", f_proj)
             if f_kto != "-- Wszyscy --": q = q.eq("zgloszone_przez", f_kto)
@@ -280,9 +292,7 @@ else:
             col_wynik, col_pobierz = st.columns([3, 1])
             col_wynik.success(f"Znaleziono wyników: **{len(wynik_szukania)}**")
             
-            # EKSPORT DO CSV (EXCEL)
             df = pd.DataFrame(wynik_szukania)
-            # Usunięcie zbędnych kolumn do eksportu, jeśli jest taka potrzeba (opcjonalnie)
             csv = df.to_csv(index=False).encode('utf-8')
             col_pobierz.download_button("📥 Pobierz listę (CSV)", data=csv, file_name="historia_zamowien.csv", mime="text/csv")
             
