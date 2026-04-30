@@ -94,7 +94,6 @@ else:
     if menu == "📝 Nowe Zamówienie":
         st.title("📝 Dodaj zamówienie")
         
-        # Pobieranie adminów do listy wyboru WhatsApp
         admins_res = supabase.table("pracownicy").select("login, telefon").eq("rola", "admin").execute()
         admin_phones = {}
         if admins_res.data:
@@ -116,12 +115,30 @@ else:
             
             projekt = st.text_input("🏗️ Projekt / Budowa / Cel")
             
+            # WIDŻET APARATU
+            st.divider()
+            zdjecie = st.camera_input("📷 Zrób zdjęcie części / usterki (opcjonalnie)")
+            
             st.divider()
             col_wa, _ = st.columns([1, 1])
             powiadom_admina = col_wa.selectbox("📲 Powiadom admina (WhatsApp)", opcje_adminow, help="Wybierz administratora, do którego automatycznie wygeneruje się wiadomość o tym zamówieniu.")
             
             if st.button("WYŚLIJ ZAMÓWIENIE", type="primary", use_container_width=True):
                 if pozycja and ilosc:
+                    # Obsługa wgrania zdjęcia do Supabase
+                    zdjecie_public_url = ""
+                    if zdjecie is not None:
+                        with st.spinner("Wgrywanie zdjęcia..."):
+                            nazwa_pliku = f"{int(time.time())}_{st.session_state.uzytkownik}.jpg"
+                            # Zapis zdjęcia do bucketu 'zdjecia_zamowien'
+                            res_upload = supabase.storage.from_("zdjecia_zamowien").upload(
+                                path=nazwa_pliku,
+                                file=zdjecie.getvalue(),
+                                file_options={"content-type": "image/jpeg"}
+                            )
+                            # Pobranie linku publicznego
+                            zdjecie_public_url = supabase.storage.from_("zdjecia_zamowien").get_public_url(nazwa_pliku)
+
                     supabase.table("zamowienia").insert({
                         "pozycja": pozycja,
                         "wymiary": wymiary,
@@ -131,7 +148,8 @@ else:
                         "pilnosc": pilnosc,
                         "status": "Oczekujące",
                         "zgloszone_przez": st.session_state.uzytkownik,
-                        "data_zgloszenia": str(datetime.today().date())
+                        "data_zgloszenia": str(datetime.today().date()),
+                        "zdjecie_url": zdjecie_public_url # Zapisanie linku w bazie
                     }).execute()
                     
                     st.balloons()
@@ -142,6 +160,9 @@ else:
                         czysty_numer = "".join(c for c in surowy_numer if c.isdigit())
                         
                         tresc = f"Cześć! Zgłosiłem nowe zamówienie z aplikacji:\n\n🔧 *{pozycja}* (Ilość: {ilosc})\n🚨 Pilność: {pilnosc}\n🏗️ Projekt: {projekt}\n👤 Od: {st.session_state.uzytkownik}"
+                        if zdjecie_public_url:
+                            tresc += f"\n📷 Zdjęcie: {zdjecie_public_url}"
+                            
                         url_wa = f"https://wa.me/{czysty_numer}?text={urllib.parse.quote(tresc)}"
                         
                         st.info(f"Kliknij poniższy przycisk, aby wysłać powiadomienie do: **{powiadom_admina}**")
@@ -151,7 +172,7 @@ else:
                         if c_refresh.button("🔄 Wyczyść i dodaj kolejne", use_container_width=True):
                             st.rerun()
                         
-                        st.stop() # Zatrzymuje kod, żeby ekran nie zniknął automatycznie po 2 sekundach
+                        st.stop()
                     else:
                         st.info("Za chwilę strona się odświeży...")
                         time.sleep(2)
@@ -182,6 +203,11 @@ else:
                         
                     st.caption(f"📏 Wymiary: {r['wymiary']} | 🧱 Materiał: {r['material']} | 🏗️ Projekt: {r['projekt']}")
                     st.caption(f"👤 Zgłosił: **{r['zgloszone_przez']}** ({r['data_zgloszenia']})")
+                    
+                    # Wyświetlanie zdjęcia
+                    if r.get('zdjecie_url'):
+                        with st.expander("🖼️ Zobacz załączone zdjęcie"):
+                            st.image(r['zdjecie_url'], use_container_width=True)
                     
                     st.divider()
                     
@@ -368,6 +394,10 @@ else:
                     st.markdown(f"### {r['pozycja']} (Ilość: {r['ilosc']})")
                     st.caption(f"🏗️ {r['projekt']} | 📅 {r['data_zgloszenia']}")
                     
+                    if r.get('zdjecie_url'):
+                        with st.expander("🖼️ Zobacz załączone zdjęcie"):
+                            st.image(r['zdjecie_url'], use_container_width=True)
+                            
                     render_status_alert(r['status'])
                     
                     if r.get('uwagi_admina'):
@@ -425,6 +455,10 @@ else:
                     
                     st.caption(f"👤 Zgłosił(a): {r['zgloszone_przez']} | 📅 {r['data_zgloszenia']}")
                     
+                    if r.get('zdjecie_url'):
+                        with st.expander("🖼️ Zobacz załączone zdjęcie"):
+                            st.image(r['zdjecie_url'], use_container_width=True)
+                            
                     if r.get('uwagi_admina'):
                         st.info(f"📝 Notatka Admina: {r['uwagi_admina']}")
                         
