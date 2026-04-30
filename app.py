@@ -125,7 +125,6 @@ else:
         st.title("⚙️ Zarządzaj Zamówieniami")
         st.caption("Lista wszystkich aktywnych zamówień. Zmieniaj statusy i wysyłaj powiadomienia WhatsApp.")
         
-        # Pobieramy najpierw wszystkich pracowników, by mieć ich numery telefonów
         pracownicy_res = supabase.table("pracownicy").select("login, telefon").execute()
         baza_telefonow = {p['login']: p.get('telefon', '') for p in pracownicy_res.data} if pracownicy_res.data else {}
 
@@ -154,7 +153,6 @@ else:
                     
                     c1, c2, c3 = st.columns([2, 1, 3])
                     
-                    # Zapisywanie zmian
                     if c1.button("💾 Zapisz zmiany", key=f"zapisz_{r['id']}", type="primary"):
                         supabase.table("zamowienia").update({
                             "status": nowy_status, 
@@ -163,17 +161,14 @@ else:
                         st.toast("Zaktualizowano status w bazie!")
                         st.rerun()
                         
-                    # Usuwanie
                     if c2.button("🗑️ Usuń", key=f"del_{r['id']}", type="secondary"):
                         supabase.table("zamowienia").delete().eq("id", r['id']).execute()
                         st.rerun()
 
-                    # Integracja z WhatsApp
                     tresc_wa = f"Cześć! Twoje zamówienie na '{r['pozycja']}' zmieniło status na: *{r['status']}*."
                     if r.get('uwagi_admina'):
                         tresc_wa += f" Notatka: {r['uwagi_admina']}"
                     
-                    # Pobieranie i czyszczenie numeru telefonu (WhatsApp wymaga samych cyfr, najlepiej z prefiksem np. 48)
                     surowy_numer = baza_telefonow.get(r['zgloszone_przez'])
                     
                     if surowy_numer:
@@ -209,7 +204,7 @@ else:
                             "login": nowy_login,
                             "haslo": nowe_haslo,
                             "rola": nowa_rola,
-                            "telefon": nowy_telefon  # Zapisujemy telefon
+                            "telefon": nowy_telefon
                         }).execute()
                         st.success(f"Dodano użytkownika {nowy_login}!")
                         time.sleep(1)
@@ -293,14 +288,48 @@ else:
             col_wynik.success(f"Znaleziono wyników: **{len(wynik_szukania)}**")
             
             df = pd.DataFrame(wynik_szukania)
-            csv = df.to_csv(index=False).encode('utf-8')
-            col_pobierz.download_button("📥 Pobierz listę (CSV)", data=csv, file_name="historia_zamowien.csv", mime="text/csv")
+            # Zmiana formatowania CSV dla polskiego Excela: separator to średnik, plus BOM dla polskich znaków (UTF-8)
+            csv_data = '\ufeff'.encode('utf8') + df.to_csv(index=False, sep=';').encode('utf-8')
+            col_pobierz.download_button("📥 Pobierz dla Excela", data=csv_data, file_name="historia_zamowien.csv", mime="text/csv")
             
             for r in wynik_szukania:
                 with st.container(border=True):
+                    # Tytuł zamówienia
+                    st.markdown(f"### {r['pozycja']} ({r['ilosc']})")
+                    
+                    # Pełne informacje w kolumnach
+                    c_info1, c_info2 = st.columns(2)
+                    c_info1.markdown(f"**Wymiary:** {r['wymiary'] if r['wymiary'] else '---'}")
+                    c_info1.markdown(f"**Materiał:** {r['material'] if r['material'] else '---'}")
+                    
+                    pilnosc_display = f"🚨 {r['pilnosc']}" if "PILNE" in r['pilnosc'] or "KRYTYCZNE" in r['pilnosc'] else r['pilnosc']
+                    c_info2.markdown(f"**Pilność:** {pilnosc_display}")
+                    c_info2.markdown(f"**Projekt:** 🏗️ {r['projekt']}")
+                    
+                    st.caption(f"👤 Zgłosił(a): {r['zgloszone_przez']} | 📅 {r['data_zgloszenia']}")
+                    
+                    if r.get('uwagi_admina'):
+                        st.info(f"📝 Notatka Admina: {r['uwagi_admina']}")
+                        
+                    st.divider()
+                    
+                    # Zarządzanie statusem na dole
+                    col_s1, col_s2 = st.columns([3, 1])
+                    
                     ikona = status_emoji.get(r['status'], "🔹")
-                    st.markdown(f"**{ikona} {r['status']}** | {r['pozycja']} ({r['ilosc']})")
-                    st.caption(f"👤 {r['zgloszone_przez']} | 🏗️ {r['projekt']} | 📅 {r['data_zgloszenia']}")
-                    if r.get('uwagi_admina'): st.info(f"Notatka: {r['uwagi_admina']}")
+                    if r['status'] == 'Zrealizowane':
+                        col_s1.success(f"Status: **{ikona} {r['status']}**")
+                    else:
+                        col_s1.markdown(f"Status: **{ikona} {r['status']}**")
+                    
+                    # Awaryjne przywracanie do żywych - widoczne tylko dla administratora
+                    if st.session_state.rola == "admin" and r['status'] == "Zrealizowane":
+                        if col_s2.button("🔄 Przywróć", key=f"revert_{r['id']}", help="Przywróci status tego zamówienia na 'Oczekujące'"):
+                            supabase.table("zamowienia").update({
+                                "status": "Oczekujące",
+                                "uwagi_admina": r.get('uwagi_admina', '') + " [Przywrócono awaryjnie]"
+                            }).eq("id", r['id']).execute()
+                            st.rerun()
+
         else:
             st.warning("Brak wyników spełniających kryteria.")
