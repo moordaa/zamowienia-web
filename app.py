@@ -1,5 +1,5 @@
 # --- ELEGANCKI PDF ---
-            try:
+try:
                 from fpdf import FPDF
 
                 class ElegantPDF(FPDF):
