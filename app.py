@@ -42,7 +42,7 @@ if not st.session_state.zalogowany:
                     else:
                         st.error("Błędny login lub hasło!")
 else:
-    # --- MENU BOCZNE (Jak na Twoim zrzucie ekranu) ---
+    # --- MENU BOCZNE ---
     with st.sidebar:
         st.success(f"Zalogowano: **{st.session_state.uzytkownik}**")
         st.divider()
@@ -57,7 +57,7 @@ else:
             st.rerun()
 
     # =========================================================================
-    # ZAKŁADKA: WYDANIA (DOKŁADNIE JAK NA SCREENIE + NOWA FUNKCJA)
+    # ZAKŁADKA: WYDANIA
     # =========================================================================
     if menu == "📦 Wydania":
         st.title("Nowe wydanie sprzętu")
@@ -66,33 +66,43 @@ else:
         res_prac = supabase.table("pracownicy").select("login").execute()
         lista_pracownikow = [p['login'] for p in res_prac.data] if res_prac.data else []
         
-        # Pobieranie unikalnych narzędzi i powodów z historii (żeby podpowiadało w Selectbox)
         res_hist = supabase.table("wydania").select("narzedzie, powod").execute()
         lista_narzedzi = sorted(list(set([x['narzedzie'] for x in res_hist.data if x.get('narzedzie')])))
         lista_powodow = sorted(list(set([x['powod'] for x in res_hist.data if x.get('powod')])))
 
         # 2. Formularz wydania
-        kto_pobiera = st.selectbox("🧑 Kto pobiera?", ["-- Wybierz osobę --"] + lista_pracownikow)
+        kto_pobiera = st.selectbox("🧑‍🔧 Kto pobiera?", ["-- Wybierz osobę --"] + lista_pracownikow)
         
-        # --- NOWA FUNKCJA: POKAZYWANIE HISTORII WYBRANEJ OSOBY ---
+        # ---------------------------------------------------------------------
+        # ---> TO JEST NOWA FUNKCJA KTÓREJ BRAKOWAŁO NA TWOIM SCREENIE <---
+        # ---------------------------------------------------------------------
         if kto_pobiera and kto_pobiera != "-- Wybierz osobę --":
             with st.expander(f"📋 Zobacz co {kto_pobiera} ma już na stanie:", expanded=True):
                 res_user = supabase.table("wydania").select("*").eq("kto_pobiera", kto_pobiera).order("id", desc=True).execute()
                 if res_user.data:
                     df_u = pd.DataFrame(res_user.data)
-                    st.dataframe(df_u[['narzedzie', 'powod', 'data_wydania']], use_container_width=True, hide_index=True)
+                    st.dataframe(
+                        df_u[['narzedzie', 'powod', 'data_wydania']], 
+                        use_container_width=True, 
+                        hide_index=True,
+                        column_config={
+                            "narzedzie": "Wydane narzędzie",
+                            "powod": "Powód pobrania",
+                            "data_wydania": "Data"
+                        }
+                    )
                 else:
-                    st.info(f"{kto_pobiera} nie ma jeszcze żadnych wydań na koncie.")
-        st.write("") # Odstęp
+                    st.info(f"{kto_pobiera} nie ma jeszcze żadnych wpisów.")
+        # ---------------------------------------------------------------------
         
-        # Wybór narzędzia z opcją dodania nowego
+        st.write("") 
+        
         wybrane_narzedzie = st.selectbox("🔧 Narzędzie", ["+ DODAJ NOWE..."] + lista_narzedzi)
         if wybrane_narzedzie == "+ DODAJ NOWE...":
             docelowe_narzedzie = st.text_input("Wpisz nazwę narzędzia...")
         else:
             docelowe_narzedzie = wybrane_narzedzie
             
-        # Wybór powodu z opcją dodania nowego
         wybrany_powod = st.selectbox("🏗️ Powód", ["+ DODAJ NOWE..."] + lista_powodow)
         if wybrany_powod == "+ DODAJ NOWE...":
             docelowy_powod = st.text_input("Wpisz powód...")
@@ -106,7 +116,6 @@ else:
             if kto_pobiera == "-- Wybierz osobę --" or not docelowe_narzedzie or not docelowy_powod:
                 st.error("Wypełnij wszystkie wymagane pola (Osoba, Narzędzie, Powód)!")
             else:
-                # Zapis do bazy
                 supabase.table("wydania").insert({
                     "kto_pobiera": kto_pobiera,
                     "narzedzie": docelowe_narzedzie,
@@ -149,46 +158,3 @@ else:
     # =========================================================================
     elif menu == "📈 Statystyki":
         st.title("📈 Statystyki")
-        res_stat = supabase.table("wydania").select("*").execute()
-        if res_stat.data:
-            df_stat = pd.DataFrame(res_stat.data)
-            col1, col2 = st.columns(2)
-            col1.subheader("Wydania na pracownika")
-            col1.bar_chart(df_stat['kto_pobiera'].value_counts())
-            col2.subheader("Najczęściej wydawane narzędzia")
-            col2.bar_chart(df_stat['narzedzie'].value_counts())
-
-    # =========================================================================
-    # ZAKŁADKA: PRACOWNICY
-    # =========================================================================
-    elif menu == "👥 Pracownicy":
-        st.title("👥 Zarządzanie pracownikami")
-        with st.expander("➕ Dodaj pracownika"):
-            n_log = st.text_input("Imię i Nazwisko (Login)")
-            n_has = st.text_input("Hasło (opcjonalnie)")
-            if st.button("Dodaj"):
-                supabase.table("pracownicy").insert({"login": n_log, "haslo": n_has}).execute()
-                st.success("Dodano"); time.sleep(1); st.rerun()
-                
-        res_p = supabase.table("pracownicy").select("*").execute()
-        if res_p.data:
-            st.dataframe(pd.DataFrame(res_p.data)[['login']], use_container_width=True, hide_index=True)
-
-    # =========================================================================
-    # ZAKŁADKA: EKSPORT EXCEL
-    # =========================================================================
-    elif menu == "📊 Eksport Excel":
-        st.title("📊 Pobierz dane")
-        res_ex = supabase.table("wydania").select("*").order("id", desc=True).execute()
-        if res_ex.data:
-            df_ex = pd.DataFrame(res_ex.data)
-            csv = '\ufeff'.encode('utf8') + df_ex.to_csv(index=False, sep=';').encode('utf-8')
-            st.download_button("📥 Pobierz pełną historię (.csv)", csv, "historia_wydań.csv", "text/csv", use_container_width=True)
-
-    # =========================================================================
-    # ZAKŁADKA: KONTA WEB
-    # =========================================================================
-    elif menu == "🔐 Konta Web":
-        st.title("🔐 Ustawienia kont dostępowych")
-        st.info("Tutaj możesz zarządzać uprawnieniami administracyjnymi.")
-        # Logika zarządzania uprawnieniami (odpowiednik z Twojego starego kodu)
