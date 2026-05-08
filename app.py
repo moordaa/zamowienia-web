@@ -51,7 +51,7 @@ else:
             st.rerun()
 
     # =========================================================================
-    # ZAKŁADKA: WYDANIA (NAPRAWIONA FILTRACJA)
+    # ZAKŁADKA: WYDANIA (Wersja z "Pancernym" Filtrowaniem)
     # =========================================================================
     if menu == "📦 Wydania":
         st.title("Nowe wydanie sprzętu")
@@ -60,70 +60,76 @@ else:
         res_p = supabase.table("pracownicy").select("login").execute()
         lista_pracownikow = sorted([p['login'] for p in res_p.data]) if res_p.data else []
 
-        # 2. Wybór osoby
-        wybrany_pracownik = st.selectbox(
+        # 2. WYBÓR OSOBY
+        wybrany = st.selectbox(
             "🧑‍🔧 Kto pobiera?", 
             ["-- Wybierz osobę --"] + lista_pracownikow,
-            key="wybor_pracownika_final"
+            key="v3_wybor_osoby"
         )
 
-        # --- SEKCJA HISTORII (DYNAMICZNA I FILTROWANA) ---
-        st.subheader("📋 Historia sprzętu")
-        
-        if wybrany_pracownik != "-- Wybierz osobę --":
-            # FILTRUJEMY: Pobierz tylko wpisy dla wybranej osoby
-            res_h = supabase.table("wydania").select("*").eq("kto_pobiera", wybrany_pracownik).order("id", desc=True).execute()
-            st.info(f"Wyświetlam historię wydań dla użytkownika: **{wybrany_pracownik}**")
-        else:
-            # JEŚLI NIKT NIE WYBRANY: Pokaż ostatnie 5 wpisów z całej bazy
-            res_h = supabase.table("wydania").select("*").order("id", desc=True).limit(5).execute()
-            st.warning("Wybierz osobę z listy powyżej, aby zobaczyć jej historię. Poniżej ostatnie ogólne wydania:")
+        st.divider()
 
+        # 3. DYNAMICZNA TABELA HISTORII
+        st.subheader("📋 Historia / Ostatnie wpisy")
+        
+        # Pobieramy dane (zawsze ostatnie 50 wpisów, żeby mieć z czego filtrować)
+        res_h = supabase.table("wydania").select("*").order("id", desc=True).limit(50).execute()
+        
         if res_h.data:
-            df_h = pd.DataFrame(res_h.data)
-            # Pokazujemy tabelę - jeśli wybrano osobę, będzie tu tylko jej sprzęt
+            df_all = pd.DataFrame(res_h.data)
+            
+            # FILTRUJEMY W PYTHONIE (to wyklucza błędy bazy danych)
+            if wybrany != "-- Wybierz osobę --":
+                # Szukamy wpisów tylko dla wybranej osoby
+                df_filtered = df_all[df_all['kto_pobiera'] == wybrany]
+                st.info(f"Wyświetlam historię dla: **{wybrany}** (Znaleziono wpisów: {len(df_filtered)})")
+            else:
+                # Jeśli nikt nie jest wybrany, pokazujemy 5 ostatnich wpisów ogólnych
+                df_filtered = df_all.head(5)
+                st.warning("Wybierz osobę powyżej, aby zobaczyć tylko jej sprzęt. Poniżej 5 ostatnich wpisów ogólnych:")
+
+            # Wyświetlamy tabelę
             st.dataframe(
-                df_h[['kto_pobiera', 'narzedzie', 'powod', 'data_wydania']], 
+                df_filtered[['kto_pobiera', 'narzedzie', 'powod', 'data_wydania']], 
                 use_container_width=True, 
                 hide_index=True
             )
         else:
-            st.info("Brak wpisów dla tego wyboru.")
+            st.info("Baza danych jest pusta.")
 
         st.divider()
 
-        # 3. Formularz dodawania (pod tabelą historii)
+        # 4. FORMULARZ DODAWANIA (POD TABELĄ)
         st.subheader("➕ Dodaj nowe wydanie")
         
-        # Podpowiedzi z bazy
-        res_all = supabase.table("wydania").select("narzedzie, powod").execute()
-        un_n = sorted(list(set([x['narzedzie'] for x in res_all.data if x.get('narzedzie')])))
-        un_p = sorted(list(set([x['powod'] for x in res_all.data if x.get('powod')])))
+        res_hints = supabase.table("wydania").select("narzedzie, powod").execute()
+        un_n = sorted(list(set([x['narzedzie'] for x in res_hints.data if x.get('narzedzie')])))
+        un_p = sorted(list(set([x['powod'] for x in res_hints.data if x.get('powod')])))
 
         c1, c2 = st.columns(2)
         with c1:
             n_w = st.selectbox("🔧 Narzędzie", ["+ DODAJ NOWE..."] + un_n)
-            n_f = st.text_input("Wpisz nazwę sprzętu") if n_w == "+ DODAJ NOWE..." else n_w
+            n_f = st.text_input("Nazwa narzędzia") if n_w == "+ DODAJ NOWE..." else n_w
         with c2:
             p_w = st.selectbox("🏗️ Powód", ["+ DODAJ NOWE..."] + un_p)
-            p_f = st.text_input("Wpisz powód") if p_w == "+ DODAJ NOWE..." else p_w
+            p_f = st.text_input("Cel wydania") if p_w == "+ DODAJ NOWE..." else p_w
 
         uwagi = st.text_area("📝 Uwagi")
         
         if st.button("ZAPISZ WYDANIE", type="primary", use_container_width=True):
-            if wybrany_pracownik != "-- Wybierz osobę --" and n_f and p_f:
+            if wybrany != "-- Wybierz osobę --" and n_f and p_f:
                 supabase.table("wydania").insert({
-                    "kto_pobiera": wybrany_pracownik,
+                    "kto_pobiera": wybrany,
                     "narzedzie": n_f,
                     "powod": p_f,
                     "uwagi": uwagi,
                     "data_wydania": datetime.now().strftime("%d.%m.%Y %H:%M")
                 }).execute()
-                st.success("Zapisano pomyślnie!")
+                st.success("Zapisano!")
                 time.sleep(1)
                 st.rerun()
             else:
-                st.error("Uzupełnij wszystkie dane (Osoba, Narzędzie, Powód)!")
+                st.error("Wybierz osobę i podaj nazwę narzędzia!")
 
     # --- Pozostałe zakładki ---
     elif menu == "🔎 Wyszukiwarka":
@@ -147,6 +153,3 @@ else:
         if st.button("Dodaj"):
             supabase.table("pracownicy").insert({"login": np}).execute()
             st.rerun()
-        res = supabase.table("pracownicy").select("login").execute()
-        if res.data:
-            st.table(pd.DataFrame(res.data))
