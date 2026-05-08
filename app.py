@@ -4,19 +4,22 @@ from datetime import datetime
 import pandas as pd
 import time
 
-# --- KONFIGURACJA ---
+# --- 1. KONFIGURACJA POŁĄCZENIA ---
 URL = "https://hdmptdcuqxqutfgrgmrj.supabase.co"
 KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhkbXB0ZGN1cXhxdXRmZ3JnbXJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3NzQ2NTksImV4cCI6MjA5MjM1MDY1OX0.ZI18vTCpYloVOdzpZuVHYVH2OwKJMsrQINgaJNl-vho"
 
-supabase: Client = create_client(URL, KEY)
+@st.cache_resource
+def get_supabase():
+    return create_client(URL, KEY)
+
+supabase = get_supabase()
 
 st.set_page_config(page_title="Pakamera Emila", page_icon="📦", layout="wide")
 
-# --- STAN SESJI ---
+# --- 2. LOGOWANIE (Uproszczone dla stabilności) ---
 if 'zalogowany' not in st.session_state:
     st.session_state.zalogowany = False
 
-# --- LOGOWANIE ---
 if not st.session_state.zalogowany:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -33,9 +36,9 @@ if not st.session_state.zalogowany:
                     st.session_state.zalogowany = True
                     st.rerun()
                 else:
-                    st.error("Błąd logowania!")
+                    st.error("Błąd logowania")
 else:
-    # --- MENU BOCZNE ---
+    # --- 3. MENU BOCZNE ---
     with st.sidebar:
         st.success("Zalogowano: Emil")
         menu = st.radio("MENU", ["📦 Wydania", "👥 Pracownicy", "🔎 Wyszukiwarka"])
@@ -44,44 +47,46 @@ else:
             st.rerun()
 
     # =========================================================================
-    # ZAKŁADKA: WYDANIA
+    # ZAKŁADKA: WYDANIA (Kluczowa sekcja)
     # =========================================================================
     if menu == "📦 Wydania":
         st.title("Nowe wydanie sprzętu")
 
-        # 1. Pobranie listy pracowników
+        # POBIERANIE LISTY PRACOWNIKÓW
         res_p = supabase.table("pracownicy").select("login").execute()
         lista_osob = sorted([p['login'] for p in res_p.data]) if res_p.data else []
 
-        # 2. WYBÓR OSOBY (Musi być POZA st.form, żeby strona od razu reagowała!)
-        wybrany_pracownik = st.selectbox(
+        # A. WYBÓR OSOBY (POZA FORMULARZEM)
+        # To musi być tutaj, żeby 'rozjaśnienie' strony powodowało przeładowanie danych
+        wybrany = st.selectbox(
             "🧑‍🔧 Kto pobiera?", 
             ["-- Wybierz osobę --"] + lista_osob,
-            key="glowne_wybranie_osoby"
+            key="wybor_pracownika_main"
         )
 
-        # 3. FORMULARZ DODAWANIA (TYLKO DLA SAMEGO ZAPISU)
+        # B. FORMULARZ WYDANIA
+        # Używamy kontenera, aby oddzielić formularz od historii
         with st.container(border=True):
+            st.subheader("➕ Formularz wydania")
             res_all = supabase.table("wydania").select("narzedzie, powod").execute()
             un_n = sorted(list(set([x['narzedzie'] for x in res_all.data if x.get('narzedzie')])))
             un_p = sorted(list(set([x['powod'] for x in res_all.data if x.get('powod')])))
 
-            col_n, col_p = st.columns(2)
-            with col_n:
-                n_wyb = st.selectbox("🔧 Narzędzie", ["+ DODAJ NOWE..."] + un_n)
-                n_final = st.text_input("Wpisz nazwę sprzętu") if n_wyb == "+ DODAJ NOWE..." else n_wyb
-            with col_p:
-                p_wyb = st.selectbox("🏗️ Powód", ["+ DODAJ NOWE..."] + un_p)
-                p_final = st.text_input("Wpisz powód") if p_wyb == "+ DODAJ NOWE..." else p_wyb
-
+            c1, c2 = st.columns(2)
+            n_wyb = c1.selectbox("🔧 Narzędzie", ["+ DODAJ NOWE..."] + un_n)
+            n_input = c1.text_input("Nazwa narzędzia") if n_wyb == "+ DODAJ NOWE..." else n_wyb
+            
+            p_wyb = c2.selectbox("🏗️ Powód", ["+ DODAJ NOWE..."] + un_p)
+            p_input = c2.text_input("Powód/Projekt") if p_wyb == "+ DODAJ NOWE..." else p_wyb
+            
             uwagi = st.text_input("📝 Uwagi")
             
             if st.button("ZAPISZ WYDANIE", type="primary", use_container_width=True):
-                if wybrany_pracownik != "-- Wybierz osobę --" and n_final and p_final:
+                if wybrany != "-- Wybierz osobę --" and n_input and p_input:
                     supabase.table("wydania").insert({
-                        "kto_pobiera": wybrany_pracownik,
-                        "narzedzie": n_final,
-                        "powod": p_final,
+                        "kto_pobiera": wybrany,
+                        "narzedzie": n_input,
+                        "powod": p_input,
                         "uwagi": uwagi,
                         "data_wydania": datetime.now().strftime("%Y-%m-%d")
                     }).execute()
@@ -89,48 +94,58 @@ else:
                     time.sleep(1)
                     st.rerun()
                 else:
-                    st.error("Wybierz osobę i podaj narzędzie!")
+                    st.error("Uzupełnij kogo dotyczy wydanie!")
 
         st.divider()
 
         # =========================================================================
-        # 4. DYNAMICZNA SEKCJA: OSTATNIE WYDANIA / HISTORIA
+        # C. DYNAMICZNA SEKCJA HISTORII (To tutaj dzieje się magia)
         # =========================================================================
-        # Ta sekcja zmienia się w zależności od tego, czy wybrałeś kogoś na górze!
+        # Ta sekcja sprawdza: czy ktoś jest wybrany?
+        # Jeśli TAK -> filtruje tylko jego historię
+        # Jeśli NIE -> pokazuje 5 ostatnich wpisów ogólnych
         
-        if wybrany_pracownik != "-- Wybierz osobę --":
-            st.subheader(f"🕒 Historia wydań dla: {wybrany_pracownik}")
-            # Pobieramy tylko wpisy dla tej osoby
-            res_h = supabase.table("wydania").select("*").eq("kto_pobiera", wybrany_pracownik).order("id", desc=True).execute()
+        if wybrany != "-- Wybierz osobę --":
+            st.subheader(f"🕒 Historia wydań dla: {wybrany}")
+            # POBIERAMY TYLKO DLA TEJ OSOBY
+            res_h = supabase.table("wydania").select("*").eq("kto_pobiera", wybrany).order("id", desc=True).execute()
         else:
-            st.subheader("🕒 Ostatnie ogólne wydania")
-            # Jeśli nikt nie jest wybrany, pokazujemy 5 ostatnich wpisów ogólnie
+            st.subheader("🕒 Ostatnie wydania (ogólne)")
+            # POBIERAMY 5 OSTATNICH OGÓLNIE
             res_h = supabase.table("wydania").select("*").order("id", desc=True).limit(5).execute()
 
+        # RENDEROWANIE KART (Dokładnie tak jak na Twoim screenie)
         if res_h.data:
             for r in res_h.data:
                 with st.container(border=True):
-                    c1, c2 = st.columns([4, 1])
-                    with c1:
+                    col_text, col_del = st.columns([5, 1])
+                    with col_text:
                         st.markdown(f"**{r['narzedzie']}**")
                         st.caption(f"👤 {r['kto_pobiera']} | 🏗️ {r['powod']} | 📅 {r['data_wydania']}")
-                    with c2:
-                        # Przycisk usuwania (opcjonalnie)
+                    with col_del:
                         if st.button("🗑️", key=f"del_{r['id']}"):
                             supabase.table("wydania").delete().eq("id", r['id']).execute()
                             st.rerun()
         else:
-            st.info("Brak wpisów do wyświetlenia.")
+            st.info("Brak wpisów dla tego pracownika.")
 
-    # --- POZOSTAŁE ZAKŁADKI ---
+    # --- POZOSTAŁE ZAKŁADKI (Uproszczone) ---
     elif menu == "👥 Pracownicy":
-        st.title("👥 Pracownicy")
-        nowy = st.text_input("Imię i Nazwisko")
+        st.title("Zarządzanie pracownikami")
+        n_p = st.text_input("Dodaj imię i nazwisko")
         if st.button("Dodaj"):
-            supabase.table("pracownicy").insert({"login": nowy}).execute()
-            st.success(f"Dodano {nowy}")
-            time.sleep(1); st.rerun()
-        
+            supabase.table("pracownicy").insert({"login": n_p}).execute()
+            st.success("Dodano")
+            st.rerun()
         res = supabase.table("pracownicy").select("login").execute()
         if res.data:
             st.table(pd.DataFrame(res.data))
+
+    elif menu == "🔎 Wyszukiwarka":
+        st.title("Wyszukiwarka")
+        szukaj = st.text_input("Szukaj...")
+        if szukaj:
+            res = supabase.table("wydania").select("*").execute()
+            df = pd.DataFrame(res.data)
+            mask = df.apply(lambda row: szukaj.lower() in row.astype(str).str.lower().values, axis=1)
+            st.dataframe(df[mask], use_container_width=True)
