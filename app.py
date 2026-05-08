@@ -51,12 +51,12 @@ else:
             st.rerun()
 
     # =========================================================================
-    # ZAKŁADKA: WYDANIA
+    # ZAKŁADKA: WYDANIA (POPRAWIONE FILTROWANIE)
     # =========================================================================
     if menu == "📦 Wydania":
         st.title("Nowe wydanie sprzętu")
 
-        # 1. Pobranie danych do list (z cache, żeby było szybciej)
+        # 1. Pobranie listy pracowników
         res_p = supabase.table("pracownicy").select("login").execute()
         lista_pracownikow = sorted([p['login'] for p in res_p.data]) if res_p.data else []
 
@@ -64,35 +64,37 @@ else:
         wybrany_pracownik = st.selectbox(
             "🧑‍🔧 Kto pobiera?", 
             ["-- Wybierz osobę --"] + lista_pracownikow,
-            key="sb_pracownik"
+            key="wybor_osoby_klucz"
         )
 
-        # --- SEKCJA HISTORII (FILTROWANIE DANYCH) ---
+        # --- SEKCJA HISTORII (DYNAMICZNA) ---
+        st.subheader(f"📋 Historia sprzętu")
+        
         if wybrany_pracownik != "-- Wybierz osobę --":
-            # Pobieramy WSZYSTKIE wydania dla tej konkretnej osoby
+            # JEŚLI WYBRANO OSOBĘ: Pobierz tylko jej wpisy
+            st.write(f"Wyświetlam wpisy dla: **{wybrany_pracownik}**")
             res_h = supabase.table("wydania").select("*").eq("kto_pobiera", wybrany_pracownik).order("id", desc=True).execute()
+        else:
+            # JEŚLI NIE WYBRANO: Pokaż ostatnie 5 wpisów ogólnie
+            st.write("Wybierz osobę, aby przefiltrować wyniki. Poniżej ostatnie ogólne wpisy:")
+            res_h = supabase.table("wydania").select("*").order("id", desc=True).limit(5).execute()
             
-            if res_h.data:
-                df_h = pd.DataFrame(res_h.data)
-                # Wyświetlamy historię tylko tego pracownika
-                with st.expander(f"📋 Historia sprzętu u: {wybrany_pracownik}", expanded=True):
-                    st.dataframe(
-                        df_h[['narzedzie', 'powod', 'data_wydania', 'uwagi']], 
-                        use_container_width=True, 
-                        hide_index=True,
-                        column_config={
-                            "narzedzie": "Sprzęt",
-                            "powod": "Cel",
-                            "data_wydania": "Data",
-                            "uwagi": "Uwagi"
-                        }
-                    )
-            else:
-                st.info(f"Brak wpisów dla użytkownika: {wybrany_pracownik}")
+        if res_h.data:
+            df_h = pd.DataFrame(res_h.data)
+            st.dataframe(
+                df_h[['kto_pobiera', 'narzedzie', 'powod', 'data_wydania']], 
+                use_container_width=True, 
+                hide_index=True
+            )
+        else:
+            st.info("Brak danych do wyświetlenia.")
 
         st.divider()
 
-        # 3. Formularz wydania (pobieramy unikalne wartości do podpowiedzi)
+        # 3. Formularz dodawania nowego wydania
+        st.subheader("➕ Dodaj nowe wydanie")
+        
+        # Pobranie unikalnych narzędzi/powodów do podpowiedzi
         res_all = supabase.table("wydania").select("narzedzie, powod").execute()
         unikalne_n = sorted(list(set([x['narzedzie'] for x in res_all.data if x.get('narzedzie')])))
         unikalne_p = sorted(list(set([x['powod'] for x in res_all.data if x.get('powod')])))
@@ -117,51 +119,35 @@ else:
                     "data_wydania": datetime.now().strftime("%d.%m.%Y %H:%M")
                 }
                 supabase.table("wydania").insert(nowe_wydanie).execute()
-                st.success(f"Pomyślnie wydano {n_final} dla {wybrany_pracownik}!")
-                time.sleep(1.5)
+                st.success(f"Zapisano!")
+                time.sleep(1)
                 st.rerun()
             else:
-                st.error("Uzupełnij kogo dotyczy wydanie oraz nazwę narzędzia i powód!")
+                st.error("Upewnij się, że wybrałeś osobę oraz wpisałeś narzędzie i powód!")
 
-    # =========================================================================
-    # POZOSTAŁE ZAKŁADKI (Wyszukiwarka itd.)
-    # =========================================================================
+    # --- Pozostałe zakładki ---
     elif menu == "🔎 Wyszukiwarka":
         st.title("🔎 Wyszukiwarka")
-        szukaj = st.text_input("Szukaj po nazwie narzędzia lub pracowniku...")
+        szukaj = st.text_input("Szukaj...")
         if szukaj:
             res = supabase.table("wydania").select("*").execute()
-            if res.data:
-                df = pd.DataFrame(res.data)
-                mask = df.apply(lambda row: szukaj.lower() in row.astype(str).str.lower().values, axis=1)
-                st.dataframe(df[mask], use_container_width=True)
+            df = pd.DataFrame(res.data)
+            mask = df.apply(lambda row: szukaj.lower() in row.astype(str).str.lower().values, axis=1)
+            st.dataframe(df[mask], use_container_width=True, hide_index=True)
 
     elif menu == "📈 Statystyki":
-        st.title("📈 Statystyki wydań")
+        st.title("📈 Statystyki")
         res = supabase.table("wydania").select("*").execute()
         if res.data:
             df = pd.DataFrame(res.data)
-            st.subheader("Najczęściej pobierający")
             st.bar_chart(df['kto_pobiera'].value_counts())
-            st.subheader("Najczęściej wydawany sprzęt")
-            st.bar_chart(df['narzedzie'].value_counts())
 
     elif menu == "👥 Pracownicy":
-        st.title("👥 Lista pracowników")
-        with st.form("dodaj_pracownika"):
-            nowy_p = st.text_input("Imię i Nazwisko")
-            if st.form_submit_button("DODAJ PRACOWNIKA"):
-                supabase.table("pracownicy").insert({"login": nowy_p}).execute()
-                st.success("Dodano pracownika")
-                time.sleep(1); st.rerun()
-        
+        st.title("👥 Pracownicy")
+        new_p = st.text_input("Imię i Nazwisko")
+        if st.button("Dodaj"):
+            supabase.table("pracownicy").insert({"login": new_p}).execute()
+            st.rerun()
         res = supabase.table("pracownicy").select("login").execute()
         if res.data:
             st.table(pd.DataFrame(res.data))
-
-    elif menu == "📊 Eksport Excel":
-        st.title("📊 Eksport danych")
-        res = supabase.table("wydania").select("*").execute()
-        if res.data:
-            df = pd.DataFrame(res.data)
-            st.download_button("Pobierz CSV", df.to_csv(index=False), "wydania.csv", "text/csv")
