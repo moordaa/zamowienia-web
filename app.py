@@ -12,10 +12,11 @@ supabase: Client = create_client(URL, KEY)
 
 st.set_page_config(page_title="Pakamera Emila", page_icon="📦", layout="wide")
 
-# --- LOGOWANIE ---
+# --- STAN SESJI ---
 if 'zalogowany' not in st.session_state:
     st.session_state.zalogowany = False
 
+# --- LOGOWANIE ---
 if not st.session_state.zalogowany:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -32,13 +33,13 @@ if not st.session_state.zalogowany:
                     st.session_state.zalogowany = True
                     st.rerun()
                 else:
-                    st.error("Błędny login!")
+                    st.error("Błąd logowania!")
 else:
     # --- MENU BOCZNE ---
     with st.sidebar:
-        st.success("Zalogowano")
-        menu = st.radio("MENU", ["📦 Wydania", "👥 Pracownicy", "🔎 Historia"])
-        if st.button("🚪 Wyloguj"):
+        st.success("Zalogowano: Emil")
+        menu = st.radio("MENU", ["📦 Wydania", "👥 Pracownicy", "🔎 Wyszukiwarka"])
+        if st.button("Wyloguj"):
             st.session_state.zalogowany = False
             st.rerun()
 
@@ -46,94 +47,90 @@ else:
     # ZAKŁADKA: WYDANIA
     # =========================================================================
     if menu == "📦 Wydania":
-        st.title("📦 Nowe wydanie sprzętu")
+        st.title("Nowe wydanie sprzętu")
 
-        # 1. POBIERANIE LISTY (POZA FORMULARZEM)
+        # 1. Pobranie listy pracowników
         res_p = supabase.table("pracownicy").select("login").execute()
         lista_osob = sorted([p['login'] for p in res_p.data]) if res_p.data else []
 
-        # 2. WYBÓR OSOBY (POZA FORMULARZEM - to gwarantuje odświeżanie!)
-        wybrany = st.selectbox("🧑‍🔧 Kto pobiera sprzęt?", ["-- Wybierz osobę --"] + lista_osob, key="glowne_wybranie")
+        # 2. WYBÓR OSOBY (Musi być POZA st.form, żeby strona od razu reagowała!)
+        wybrany_pracownik = st.selectbox(
+            "🧑‍🔧 Kto pobiera?", 
+            ["-- Wybierz osobę --"] + lista_osob,
+            key="glowne_wybranie_osoby"
+        )
 
-        # 3. WYŚWIETLANIE HISTORII (NATYCHMIASTOWE)
-        if wybrany != "-- Wybierz osobę --":
-            st.write(f"🔍 Sprawdzam bazę dla: **{wybrany}**")
-            res_h = supabase.table("wydania").select("*").eq("kto_pobiera", wybrany).order("id", desc=True).execute()
-            
-            if res_h.data:
-                st.subheader(f"📋 Sprzęt u pracownika: {wybrany}")
-                df_h = pd.DataFrame(res_h.data)
-                st.dataframe(df_h[['narzedzie', 'powod', 'data_wydania']], use_container_width=True, hide_index=True)
-            else:
-                st.info(f"Brak wpisów dla {wybrany}. Możesz dodać pierwsze wydanie poniżej.")
-        else:
-            st.info("Wybierz osobę, aby zobaczyć co już pobrała.")
+        # 3. FORMULARZ DODAWANIA (TYLKO DLA SAMEGO ZAPISU)
+        with st.container(border=True):
+            res_all = supabase.table("wydania").select("narzedzie, powod").execute()
+            un_n = sorted(list(set([x['narzedzie'] for x in res_all.data if x.get('narzedzie')])))
+            un_p = sorted(list(set([x['powod'] for x in res_all.data if x.get('powod')])))
 
-        st.divider()
+            col_n, col_p = st.columns(2)
+            with col_n:
+                n_wyb = st.selectbox("🔧 Narzędzie", ["+ DODAJ NOWE..."] + un_n)
+                n_final = st.text_input("Wpisz nazwę sprzętu") if n_wyb == "+ DODAJ NOWE..." else n_wyb
+            with col_p:
+                p_wyb = st.selectbox("🏗️ Powód", ["+ DODAJ NOWE..."] + un_p)
+                p_final = st.text_input("Wpisz powód") if p_wyb == "+ DODAJ NOWE..." else p_wyb
 
-        # 4. FORMULARZ DODAWANIA (TYLKO DLA SAMEGO ZAPISU)
-        st.subheader("➕ Nowy wpis")
-        
-        # Pobieramy podpowiedzi narzędzi
-        res_all = supabase.table("wydania").select("narzedzie, powod").execute()
-        un_n = sorted(list(set([x['narzedzie'] for x in res_all.data if x.get('narzedzie')])))
-        un_p = sorted(list(set([x['powod'] for x in res_all.data if x.get('powod')])))
-
-        # Używamy st.form, aby przyciski dodawania narzędzi nie przeładowywały strony co sekundę
-        with st.form("form_wydania", clear_on_submit=True):
-            c1, c2 = st.columns(2)
-            narzedzie_input = c1.text_input("Wpisz narzędzie (lub wybierz z listy obok)")
-            narzedzie_list = c1.selectbox("Podpowiedzi narzędzi", ["-- Wybierz --"] + un_n)
+            uwagi = st.text_input("📝 Uwagi")
             
-            powod_input = c2.text_input("Wpisz cel/projekt")
-            powod_list = c2.selectbox("Podpowiedzi powodów", ["-- Wybierz --"] + un_p)
-            
-            uwagi = st.text_input("Uwagi")
-            
-            submit = st.form_submit_button("✅ ZAPISZ WYDANIE", use_container_width=True, type="primary")
-            
-            if submit:
-                # Logika wyboru: weź z inputa, a jak pusty to z listy
-                n_final = narzedzie_input if narzedzie_input else (narzedzie_list if narzedzie_list != "-- Wybierz --" else None)
-                p_final = powod_input if powod_input else (powod_list if powod_list != "-- Wybierz --" else None)
-
-                if wybrany != "-- Wybierz osobę --" and n_final and p_final:
+            if st.button("ZAPISZ WYDANIE", type="primary", use_container_width=True):
+                if wybrany_pracownik != "-- Wybierz osobę --" and n_final and p_final:
                     supabase.table("wydania").insert({
-                        "kto_pobiera": wybrany,
+                        "kto_pobiera": wybrany_pracownik,
                         "narzedzie": n_final,
                         "powod": p_final,
                         "uwagi": uwagi,
-                        "data_wydania": datetime.now().strftime("%d.%m.%Y %H:%M")
+                        "data_wydania": datetime.now().strftime("%Y-%m-%d")
                     }).execute()
                     st.success("Zapisano!")
                     time.sleep(1)
                     st.rerun()
                 else:
-                    st.error("Uzupełnij dane! Wybierz osobę i podaj narzędzie.")
+                    st.error("Wybierz osobę i podaj narzędzie!")
 
-    # =========================================================================
-    # ZAKŁADKA: PRACOWNICY
-    # =========================================================================
+        st.divider()
+
+        # =========================================================================
+        # 4. DYNAMICZNA SEKCJA: OSTATNIE WYDANIA / HISTORIA
+        # =========================================================================
+        # Ta sekcja zmienia się w zależności od tego, czy wybrałeś kogoś na górze!
+        
+        if wybrany_pracownik != "-- Wybierz osobę --":
+            st.subheader(f"🕒 Historia wydań dla: {wybrany_pracownik}")
+            # Pobieramy tylko wpisy dla tej osoby
+            res_h = supabase.table("wydania").select("*").eq("kto_pobiera", wybrany_pracownik).order("id", desc=True).execute()
+        else:
+            st.subheader("🕒 Ostatnie ogólne wydania")
+            # Jeśli nikt nie jest wybrany, pokazujemy 5 ostatnich wpisów ogólnie
+            res_h = supabase.table("wydania").select("*").order("id", desc=True).limit(5).execute()
+
+        if res_h.data:
+            for r in res_h.data:
+                with st.container(border=True):
+                    c1, c2 = st.columns([4, 1])
+                    with c1:
+                        st.markdown(f"**{r['narzedzie']}**")
+                        st.caption(f"👤 {r['kto_pobiera']} | 🏗️ {r['powod']} | 📅 {r['data_wydania']}")
+                    with c2:
+                        # Przycisk usuwania (opcjonalnie)
+                        if st.button("🗑️", key=f"del_{r['id']}"):
+                            supabase.table("wydania").delete().eq("id", r['id']).execute()
+                            st.rerun()
+        else:
+            st.info("Brak wpisów do wyświetlenia.")
+
+    # --- POZOSTAŁE ZAKŁADKI ---
     elif menu == "👥 Pracownicy":
-        st.title("👥 Lista pracowników")
-        with st.form("add_p"):
-            imie = st.text_input("Imię i Nazwisko (Login)")
-            if st.form_submit_button("DODAJ BARTKA"):
-                if imie:
-                    supabase.table("pracownicy").insert({"login": imie}).execute()
-                    st.success(f"Dodano {imie}!")
-                    time.sleep(1)
-                    st.rerun()
-
+        st.title("👥 Pracownicy")
+        nowy = st.text_input("Imię i Nazwisko")
+        if st.button("Dodaj"):
+            supabase.table("pracownicy").insert({"login": nowy}).execute()
+            st.success(f"Dodano {nowy}")
+            time.sleep(1); st.rerun()
+        
         res = supabase.table("pracownicy").select("login").execute()
         if res.data:
             st.table(pd.DataFrame(res.data))
-
-    # =========================================================================
-    # ZAKŁADKA: HISTORIA (OGÓLNA)
-    # =========================================================================
-    elif menu == "🔎 Historia":
-        st.title("🔎 Pełna historia wydań")
-        res = supabase.table("wydania").select("*").order("id", desc=True).execute()
-        if res.data:
-            st.dataframe(pd.DataFrame(res.data), use_container_width=True, hide_index=True)
