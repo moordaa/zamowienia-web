@@ -8,20 +8,16 @@ import time
 URL = "https://hdmptdcuqxqutfgrgmrj.supabase.co"
 KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhkbXB0ZGN1cXhxdXRmZ3JnbXJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3NzQ2NTksImV4cCI6MjA5MjM1MDY1OX0.ZI18vTCpYloVOdzpZuVHYVH2OwKJMsrQINgaJNl-vho"
 
-@st.cache_resource
-def get_supabase():
-    return create_client(URL, KEY)
+# Połączenie z bazą
+supabase: Client = create_client(URL, KEY)
 
-supabase = get_supabase()
+st.set_page_config(page_title="Pakamera Emila", page_icon="📦", layout="wide")
 
-st.set_page_config(page_title="Pakamera Emila - DEBUG", page_icon="📦", layout="wide")
-
-# --- STAN SESJI ---
+# --- STAN SESJI (Logowanie) ---
 if 'zalogowany' not in st.session_state:
     st.session_state.zalogowany = False
     st.session_state.uzytkownik = ""
 
-# --- LOGOWANIE ---
 if not st.session_state.zalogowany:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -42,107 +38,119 @@ if not st.session_state.zalogowany:
 else:
     # --- MENU BOCZNE ---
     with st.sidebar:
-        st.header("WERSJA DIAGNOSTYCZNA 🛠️")
-        st.write(f"Zalogowano: **{st.session_state.uzytkownik}**")
+        st.success(f"Użytkownik: **{st.session_state.uzytkownik}**")
         st.divider()
-        opcje = ["📦 Wydania", "🔎 Wyszukiwarka", "📈 Statystyki", "👥 Pracownicy", "📊 Eksport Excel"]
+        opcje = ["📦 Wydania", "👥 Pracownicy", "🔎 Wyszukiwarka", "📈 Statystyki", "📊 Eksport CSV"]
         menu = st.radio("MENU", opcje)
         if st.button("🚪 Wyloguj", use_container_width=True):
             st.session_state.zalogowany = False
             st.rerun()
 
     # =========================================================================
-    # ZAKŁADKA: WYDANIA (WERSJA DIAGNOSTYCZNA)
+    # ZAKŁADKA: WYDANIA
     # =========================================================================
     if menu == "📦 Wydania":
-        st.title("Nowe wydanie sprzętu")
+        st.title("📦 Nowe wydanie sprzętu")
 
-        # 1. Pobieranie listy osób
+        # Pobieramy AKTUALNĄ listę pracowników z bazy
         res_p = supabase.table("pracownicy").select("login").execute()
-        lista_pracownikow = sorted([p['login'] for p in res_p.data]) if res_p.data else []
+        lista_osob = sorted([p['login'] for p in res_p.data]) if res_p.data else []
 
-        # 2. WYBÓR OSOBY
-        wybrany = st.selectbox(
-            "🧑‍🔧 Kto pobiera?", 
-            ["-- Wybierz osobę --"] + lista_pracownikow,
-            key="v_debug_osoba"
-        )
-
-        st.divider()
-
-        # 3. POBIERANIE I FILTROWANIE DANYCH (Z PODGLĄDEM)
-        st.subheader("📋 Historia / Podgląd wpisów")
-        
-        # Pobieramy ostatnie 100 wpisów
-        res_h = supabase.table("wydania").select("*").order("id", desc=True).limit(100).execute()
-        
-        if res_h.data:
-            df_all = pd.DataFrame(res_h.data)
-            
-            # --- DEBUG INFO (Pokaże Ci co się dzieje) ---
-            if wybrany != "-- Wybierz osobę --":
-                # Filtrujemy dane, usuwając spacje (strip) i ignorując wielkość liter
-                df_filtered = df_all[df_all['kto_pobiera'].str.strip() == wybrany.strip()]
-                
-                st.code(f"DEBUG: Wybrałeś '{wybrany}'. W bazie znaleziono {len(df_filtered)} wpisów dla tej osoby.")
-                
-                if len(df_filtered) == 0:
-                    st.warning(f"⚠️ Uwaga: Wybrałeś '{wybrany}', ale w bazie dane mogą być zapisane inaczej (np. ze spacją).")
-                    st.write("Dostępne osoby w bazie danych (pierwsze 5):", df_all['kto_pobiera'].unique()[:5])
-                
-                # Wyświetlamy TYLKO przefiltrowane dane
-                st.dataframe(df_filtered[['kto_pobiera', 'narzedzie', 'powod', 'data_wydania']], use_container_width=True, hide_index=True)
-            else:
-                # Jeśli nikt nie wybrany, pokazujemy 5 ostatnich
-                st.info("Wybierz osobę powyżej. Poniżej 5 ostatnich wpisów ogólnych:")
-                st.dataframe(df_all.head(5)[['kto_pobiera', 'narzedzie', 'powod', 'data_wydania']], use_container_width=True, hide_index=True)
+        # 1. Wybór osoby
+        if not lista_osob:
+            st.warning("⚠️ Brak pracowników w bazie! Idź do zakładki 'Pracownicy' i dodaj Bartka.")
+            wybrany = "-- Brak osób --"
         else:
-            st.info("Brak danych w tabeli 'wydania'.")
+            wybrany = st.selectbox("🧑‍🔧 Kto pobiera sprzęt?", ["-- Wybierz osobę --"] + lista_osob)
+
+        # 2. Wyświetlanie historii (TYLKO DLA WYBRANEJ OSOBY)
+        st.subheader("📋 Historia sprzętu")
+        if wybrany != "-- Wybierz osobę --" and wybrany != "-- Brak osób --":
+            # Pobieramy wpisy TYLKO dla tej osoby
+            res_h = supabase.table("wydania").select("*").eq("kto_pobiera", wybrany).order("id", desc=True).execute()
+            if res_h.data:
+                df_h = pd.DataFrame(res_h.data)
+                st.info(f"To są wszystkie narzędzia, które pobrał: **{wybrany}**")
+                st.dataframe(df_h[['narzedzie', 'powod', 'data_wydania', 'uwagi']], use_container_width=True, hide_index=True)
+            else:
+                st.info(f"Użytkownik **{wybrany}** nie pobierał jeszcze żadnego sprzętu.")
+        else:
+            # Jeśli nikt nie jest wybrany, pokaż 5 ostatnich wydań ogólnie
+            st.write("Wybierz osobę powyżej, aby zobaczyć jej historię. Poniżej 5 ostatnich wpisów ogólnych:")
+            res_last = supabase.table("wydania").select("*").order("id", desc=True).limit(5).execute()
+            if res_last.data:
+                st.dataframe(pd.DataFrame(res_last.data)[['kto_pobiera', 'narzedzie', 'data_wydania']], use_container_width=True, hide_index=True)
 
         st.divider()
 
-        # 4. FORMULARZ (POD TABELĄ)
-        st.subheader("➕ Dodaj nowe wydanie")
+        # 3. Formularz wydawania
+        st.subheader("➕ Zapisz nowe wydanie")
         
-        # Pobieranie podpowiedzi
-        res_hints = supabase.table("wydania").select("narzedzie, powod").execute()
-        un_n = sorted(list(set([x['narzedzie'] for x in res_hints.data if x.get('narzedzie')])))
-        un_p = sorted(list(set([x['powod'] for x in res_hints.data if x.get('powod')])))
+        # Podpowiedzi narzędzi i powodów
+        res_all = supabase.table("wydania").select("narzedzie, powod").execute()
+        un_n = sorted(list(set([x['narzedzie'] for x in res_all.data if x.get('narzedzie')])))
+        un_p = sorted(list(set([x['powod'] for x in res_all.data if x.get('powod')])))
 
         c1, c2 = st.columns(2)
         with c1:
-            n_w = st.selectbox("🔧 Narzędzie", ["+ DODAJ NOWE..."] + un_n)
-            n_f = st.text_input("Nazwa narzędzia") if n_w == "+ DODAJ NOWE..." else n_w
+            n_w = st.selectbox("🔧 Narzędzie", ["+ DOPISZ NOWE..."] + un_n)
+            n_final = st.text_input("Podaj nazwę narzędzia") if n_w == "+ DOPISZ NOWE..." else n_w
         with c2:
-            p_w = st.selectbox("🏗️ Powód", ["+ DODAJ NOWE..."] + un_p)
-            p_f = st.text_input("Cel wydania") if p_w == "+ DODAJ NOWE..." else p_w
+            p_w = st.selectbox("🏗️ Powód / Projekt", ["+ DOPISZ NOWY..."] + un_p)
+            p_final = st.text_input("Podaj cel/projekt") if p_w == "+ DOPISZ NOWY..." else p_w
 
-        uwagi = st.text_area("📝 Uwagi")
+        uwagi = st.text_area("📝 Dodatkowe uwagi (opcjonalnie)")
         
-        if st.button("ZAPISZ WYDANIE", type="primary", use_container_width=True):
-            if wybrany != "-- Wybierz osobę --" and n_f and p_f:
+        if st.button("✅ ZATWIERDŹ I ZAPISZ", type="primary", use_container_width=True):
+            if wybrany == "-- Wybierz osobę --" or not n_final or not p_final:
+                st.error("BŁĄD: Musisz wybrać OSOBĘ oraz podać NARZĘDZIE i POWÓD!")
+            else:
                 supabase.table("wydania").insert({
-                    "kto_pobiera": wybrany, # Zapisujemy dokładnie to co wybraliśmy
-                    "narzedzie": n_f,
-                    "powod": p_f,
+                    "kto_pobiera": wybrany,
+                    "narzedzie": n_final,
+                    "powod": p_final,
                     "uwagi": uwagi,
                     "data_wydania": datetime.now().strftime("%d.%m.%Y %H:%M")
                 }).execute()
-                st.success("Zapisano!")
+                st.success("Zapisano pomyślnie!")
                 time.sleep(1)
                 st.rerun()
-            else:
-                st.error("Wybierz osobę i podaj nazwę narzędzia!")
 
-    # --- Pozostałe zakładki ---
+    # =========================================================================
+    # ZAKŁADKA: PRACOWNICY (TUTAJ DODAJESZ BARTKA)
+    # =========================================================================
+    elif menu == "👥 Pracownicy":
+        st.title("👥 Zarządzanie pracownikami")
+        
+        with st.container(border=True):
+            st.subheader("➕ Dodaj nową osobę do bazy")
+            nowy_p = st.text_input("Imię i Nazwisko pracownika (np. Bartek)")
+            if st.button("DODAJ PRACOWNIKA", type="primary"):
+                if nowy_p:
+                    supabase.table("pracownicy").insert({"login": nowy_p}).execute()
+                    st.success(f"Dodano użytkownika **{nowy_p}**! Teraz znajdziesz go na liście w zakładce Wydania.")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.warning("Wpisz imię!")
+
+        st.divider()
+        st.subheader("Lista osób obecnie w bazie:")
+        res_list = supabase.table("pracownicy").select("login").execute()
+        if res_list.data:
+            st.table(pd.DataFrame(res_list.data))
+        else:
+            st.info("Baza pracowników jest pusta.")
+
+    # Pozostałe zakładki (uproszczone)
     elif menu == "🔎 Wyszukiwarka":
         st.title("🔎 Wyszukiwarka")
-        f = st.text_input("Szukaj...")
+        f = st.text_input("Szukaj frazy...")
         if f:
             res = supabase.table("wydania").select("*").execute()
             df = pd.DataFrame(res.data)
             m = df.apply(lambda r: f.lower() in r.astype(str).str.lower().values, axis=1)
-            st.dataframe(df[m], use_container_width=True, hide_index=True)
+            st.dataframe(df[m], use_container_width=True)
 
     elif menu == "📈 Statystyki":
         st.title("📈 Statystyki")
@@ -150,9 +158,9 @@ else:
         if res.data:
             st.bar_chart(pd.DataFrame(res.data)['kto_pobiera'].value_counts())
 
-    elif menu == "👥 Pracownicy":
-        st.title("👥 Pracownicy")
-        np = st.text_input("Imię i Nazwisko")
-        if st.button("Dodaj"):
-            supabase.table("pracownicy").insert({"login": np}).execute()
-            st.rerun()
+    elif menu == "📊 Eksport CSV":
+        st.title("📊 Pobieranie danych")
+        res = supabase.table("wydania").select("*").execute()
+        if res.data:
+            df = pd.DataFrame(res.data)
+            st.download_button("Pobierz plik CSV", df.to_csv(index=False), "wydania.csv", "text/csv")
