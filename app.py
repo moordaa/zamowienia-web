@@ -188,7 +188,7 @@ else:
                     else:
                         b1.button(f"⚠️ {r['zgloszone_przez']} (Brak Tel)", disabled=True, use_container_width=True)
                     
-                    # PRZYCISK: Dodatkowi odbiorcy (Tylko ci z bazy)
+                    # PRZYCISK: Dodatkowi odbiorcy
                     with b2.popover("➕ WA Inni"):
                         st.write("Wybierz osoby do powiadomienia:")
                         lista_opcji = [k for k in pracownicy_dict.keys() if k != r['zgloszone_przez']]
@@ -253,7 +253,14 @@ else:
             with st.container(border=True):
                 col_i, col_b = st.columns([5, 1])
                 haslo_widoczne = p.get('hasło') or p.get('haslo') or "???"
+                
+                # --- ZABEZPIECZENIE HASŁA EMILA ---
+                if p['login'].lower() == "emil" and st.session_state.uzytkownik.lower() != "emil":
+                    haslo_widoczne = "••••••••"
+                # ----------------------------------
+
                 col_i.markdown(f"👤 **{p['login']}** | 🔑 Hasło: `{haslo_widoczne}` | 🛠️ Rola: `{p.get('rola')}` | 📞 Tel: `{p.get('telefon','')}`")
+                
                 if p['login'].lower() != "emil":
                     if col_b.button("🗑️ Usuń", key=f"dp_{p['login']}"):
                         supabase.table("pracownicy").delete().eq("login", p['login']).execute(); st.rerun()
