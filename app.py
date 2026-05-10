@@ -63,7 +63,7 @@ else:
     with st.sidebar:
         st.success(f"Zalogowano: **{st.session_state.uzytkownik}**")
         st.divider()
-        opcje = ["📝 Nowe Zamówienie", "📋 Moje Aktywne", "🔎 Historia i Raporty", "📊 Statystyki", "📖 Instrukcja"]
+        opcje = ["📝 Nowe Zamówienie", "📋 Moje Aktywne", "🔎 Historia i Raporty", "📊 Statystyki", "💬 Czat / Sugestie", "📖 Instrukcja"]
         if st.session_state.rola == "admin":
             opcje.insert(1, "⚙️ Panel Realizacji (Admin)")
             opcje.insert(4, "👥 Zarządzanie Kontami")
@@ -75,14 +75,6 @@ else:
             st.rerun()
 
     status_emoji = {"Oczekujące": "⏳", "Zamówione": "🚚", "Niedostępne": "❌", "Zamiennik": "🔄", "Zrealizowane": "✅"}
-
-    def render_status_alert(status_text):
-        ikona = status_emoji.get(status_text, "🔹")
-        msg = f"**Status:** {ikona} {status_text}"
-        if status_text == "Zrealizowane": st.success(msg)
-        elif status_text in ["Niedostępne", "Zamiennik"]: st.error(msg)
-        elif status_text == "Oczekujące": st.warning(msg)
-        else: st.info(msg)
 
     # --- FUNKCJA PDF ---
     def make_real_pdf(df, title_text):
@@ -131,21 +123,15 @@ else:
         st.title("📝 Nowe zamówienie")
         with st.container(border=True):
             pozycja = st.text_input("🔧 Pozycja (np. Śruba zamkowa)")
-            c1, c2 = st.columns(2)
-            wymiary = c1.text_input("📏 Wymiary")
-            material = c2.text_input("🧱 Materiał")
-            c3, c4 = st.columns(2)
-            ilosc = c3.text_input("🔢 Ilość")
-            pilnosc = c4.selectbox("🚨 Pilność", ["Normalna", "PILNE ⚡", "KRYTYCZNE 🛑"])
+            c1, c2 = st.columns(2); wymiary = c1.text_input("📏 Wymiary"); material = c2.text_input("🧱 Materiał")
+            c3, c4 = st.columns(2); ilosc = c3.text_input("🔢 Ilość"); pilnosc = c4.selectbox("🚨 Pilność", ["Normalna", "PILNE ⚡", "KRYTYCZNE 🛑"])
             projekt = st.text_input("🏗️ Projekt / Cel")
-            st.divider()
-            plik_upload = st.file_uploader("📁 Wybierz plik", type=["jpg", "jpeg", "png", "pdf"])
+            st.divider(); plik_upload = st.file_uploader("📁 Załącznik", type=["jpg", "jpeg", "png", "pdf"])
             if st.button("WYŚLIJ ZAMÓWIENIE", type="primary", use_container_width=True):
                 if pozycja and ilosc:
                     url_zdj = ""
                     if plik_upload:
-                        nazwa = f"{int(time.time())}.jpg"
-                        supabase.storage.from_("zdjecia_zamowien").upload(nazwa, plik_upload.getvalue())
+                        nazwa = f"{int(time.time())}.jpg"; supabase.storage.from_("zdjecia_zamowien").upload(nazwa, plik_upload.getvalue())
                         url_zdj = supabase.storage.from_("zdjecia_zamowien").get_public_url(nazwa)
                     supabase.table("zamowienia").insert({"pozycja": pozycja, "wymiary": wymiary, "material": material, "ilosc": ilosc, "projekt": projekt, "pilnosc": pilnosc, "status": "Oczekujące", "zgloszone_przez": st.session_state.uzytkownik, "data_zgloszenia": str(datetime.today().date()), "zdjecie_url": url_zdj}).execute()
                     st.success("Wysłano!"); time.sleep(1); st.rerun()
@@ -174,102 +160,102 @@ else:
             df_export = df_h[["data_zgloszenia", "data_realizacji", "pozycja", "wymiary", "material", "ilosc", "projekt", "pilnosc", "zgloszone_przez", "status", "uwagi_admina"]].copy()
             df_export.columns = ["Zgłoszono", "Zrealizowano", "Pozycja", "Wymiary", "Materiał", "Ilość", "Projekt", "Pilność", "Zgłaszający", "Status", "Uwagi"]
             c1, c2 = st.columns(2)
-            # Excel
             out_xls = io.BytesIO()
             with pd.ExcelWriter(out_xls, engine='openpyxl') as writer:
                 df_export.to_excel(writer, index=False, sheet_name='Historia', startrow=2)
-                ws = writer.sheets['Historia']
-                ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
-                ws.page_setup.fitToPage = True
+                ws = writer.sheets['Historia']; ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT; ws.page_setup.fitToPage = True
             c1.download_button("📊 Pobierz Excel (A4 Pion)", out_xls.getvalue(), "historia.xlsx", use_container_width=True)
-            # PDF
             pdf_bytes = make_real_pdf(df_export, f"HISTORIA ZAMOWIEN")
             c2.download_button("📄 Pobierz PDF (A4 Pion)", pdf_bytes, "historia.pdf", use_container_width=True)
 
     # =========================================================================
-    # ZAKŁADKA: STATYSTYKI (CZYSTE I KONKRETNE)
+    # ZAKŁADKA: CZAT / SUGESTIE 
+    # =========================================================================
+    elif menu == "💬 Czat / Sugestie":
+        st.title("💬 Czat i Sugestie")
+        st.caption("Masz pomysł na nową funkcję? Coś nie działa? Napisz tutaj!")
+        
+        # 1. Formularz dodawania sugestii
+        with st.container(border=True):
+            sugestia_tekst = st.text_area("Twoja sugestia / pytanie:", placeholder="Napisz tutaj co możemy ulepszyć...")
+            if st.button("Wyślij wpis", type="primary"):
+                if sugestia_tekst:
+                    supabase.table("sugestie").insert({
+                        "data": datetime.now().strftime("%d.%m.%Y %H:%M"),
+                        "uzytkownik": st.session_state.uzytkownik,
+                        "tresc": sugestia_tekst,
+                        "status": "Oczekujące"
+                    }).execute()
+                    st.success("Dziękujemy za sugestię!")
+                    time.sleep(1); st.rerun()
+                else:
+                    st.error("Wpisz treść!")
+
+        st.divider()
+        
+        # 2. Wyświetlanie wpisów
+        sug_res = supabase.table("sugestie").select("*").order("id", desc=True).execute()
+        
+        if not sug_res.data:
+            st.info("Brak wpisów. Bądź pierwszy!")
+        else:
+            for s in sug_res.data:
+                with st.container(border=True):
+                    # Nagłówek wpisu
+                    c1, c2 = st.columns([4, 1])
+                    c1.markdown(f"👤 **{s['uzytkownik']}** | 📅 `{s['data']}`")
+                    
+                    # Kolorowy status
+                    s_color = "orange" if s['status'] == "Oczekujące" else "green"
+                    c2.markdown(f"**Status:** :{s_color}[{s['status']}]")
+                    
+                    st.markdown(f"> {s['tresc']}")
+                    
+                    # Widok odpowiedzi
+                    if s.get('odpowiedz'):
+                        st.markdown(f"**💬 Odpowiedź Admina:**")
+                        st.info(s['odpowiedz'])
+                    
+                    # Narzędzia Admina (Tylko dla Emila i Adminów)
+                    if st.session_state.rola == "admin":
+                        with st.expander("🛠️ Zarządzaj tym wpisem"):
+                            nowa_odp = st.text_area("Twoja odpowiedź:", value=s.get('odpowiedz') or "", key=f"ans_{s['id']}")
+                            nowy_stat = st.selectbox("Status sugestii:", ["Oczekujące", "Wprowadzone", "W trakcie", "Odrzucone"], 
+                                                     index=["Oczekujące", "Wprowadzone", "W trakcie", "Odrzucone"].index(s['status']), 
+                                                     key=f"stat_{s['id']}")
+                            
+                            col_a, col_b = st.columns(2)
+                            if col_a.button("Zapisz odpowiedź", key=f"btn_s_{s['id']}", use_container_width=True, type="primary"):
+                                supabase.table("sugestie").update({"odpowiedz": nowa_odp, "status": nowy_stat}).eq("id", s['id']).execute()
+                                st.rerun()
+                            if col_b.button("Usuń wpis", key=f"btn_d_{s['id']}", use_container_width=True):
+                                supabase.table("sugestie").delete().eq("id", s['id']).execute()
+                                st.rerun()
+
+    # =========================================================================
+    # RESZTA ZAKŁADEK
     # =========================================================================
     elif menu == "📊 Statystyki":
-        st.title("📊 Statystyki i Analityka")
+        st.title("📊 Statystyki")
         res = supabase.table("zamowienia").select("*").execute()
-        
         if res.data:
             df = pd.DataFrame(res.data)
-            
-            # WSKAŹNIKI OGÓLNE (METRYKI)
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Wszystkich zamówień", len(df))
-            m2.metric("Oczekujące", len(df[df['status'] == 'Oczekujące']))
-            m3.metric("Zrealizowane", len(df[df['status'] == 'Zrealizowane']))
-            
-            # Obliczanie średniego czasu realizacji
-            df['data_zgloszenia'] = pd.to_datetime(df['data_zgloszenia'])
-            df['data_realizacji'] = pd.to_datetime(df['data_realizacji'])
-            df_zrealizowane = df[df['data_realizacji'].notna()]
-            if not df_zrealizowane.empty:
-                sredni_czas = (df_zrealizowane['data_realizacji'] - df_zrealizowane['data_zgloszenia']).dt.days.mean()
-                m4.metric("Średni czas realizacji", f"{sredni_czas:.1f} dni")
-            else:
-                m4.metric("Średni czas realizacji", "---")
-
-            st.divider()
-
-            col_a, col_b = st.columns(2)
-            
-            with col_a:
-                st.subheader("👤 Zamówienia wg Osób")
-                st.bar_chart(df['zgloszone_przez'].value_counts())
-                
-                st.subheader("🚨 Rozkład Pilności")
-                st.bar_chart(df['pilnosc'].value_counts())
-
-            with col_b:
-                st.subheader("🏗️ Zamówienia wg Projektu")
-                st.bar_chart(df['projekt'].value_counts())
-                
-                st.subheader("🔝 Top 5 Produktów")
-                top_produkty = df['pozycja'].value_counts().head(5)
-                st.table(top_produkty)
-
-        else:
-            st.info("Brak danych do wygenerowania statystyk.")
+            m1, m2, m3 = st.columns(3); m1.metric("Wszystkich", len(df)); m2.metric("Oczekujące", len(df[df['status'] == 'Oczekujące'])); m3.metric("Zrealizowane", len(df[df['status'] == 'Zrealizowane']))
+            st.divider(); col_a, col_b = st.columns(2)
+            with col_a: st.subheader("Osoby"); st.bar_chart(df['zgloszone_przez'].value_counts())
+            with col_b: st.subheader("Projekty"); st.bar_chart(df['projekt'].value_counts())
 
     elif menu == "📋 Moje Aktywne":
         st.title("📋 Twoje zamówienia")
         res = supabase.table("zamowienia").select("*").eq("zgloszone_przez", st.session_state.uzytkownik).neq("status", "Zrealizowane").execute()
         for r in res.data:
-            with st.container(border=True):
-                st.markdown(f"### 📦 {r['pozycja'].upper()} x {r['ilosc']}")
-                render_status_alert(r['status'])
+            with st.container(border=True): st.markdown(f"### 📦 {r['pozycja'].upper()} x {r['ilosc']}")
 
     elif menu == "📖 Instrukcja":
-        st.title("📖 Instrukcja Obsługi Systemu")
-        
+        st.title("📖 Instrukcja Obsługi")
         with st.container(border=True):
-            st.markdown("### 📝 Składanie Zamówień")
-            st.write("1. Wejdź w zakładkę **Nowe Zamówienie**.")
-            st.write("2. Wypełnij nazwę pozycji, ilość oraz dane techniczne (wymiary, materiał).")
-            st.write("3. Możesz zrobić zdjęcie telefonem (📷) lub wgrać plik PDF/Zdjęcie z dysku.")
-            st.write("4. Wybierz Admina, którego chcesz powiadomić i kliknij **Wyślij**.")
-            st.info("💡 Po wysłaniu pojawi się przycisk WhatsApp – kliknij go, aby od razu przesłać treść zamówienia do admina.")
-
-        with st.container(border=True):
-            st.markdown("### ⚙️ Zarządzanie Realizacją (Admin)")
-            st.write("Wszystkie aktywne zamówienia są widoczne w **Panelu Realizacji**.")
-            st.markdown("- **Zmiana statusu:** Wybierz nowy status z listy i wpisz notatkę, a następnie kliknij dyskietkę (**💾**).")
-            st.markdown("- **Powiadomienia:** Przycisk **📲 WA** wysyła aktualizację statusu bezpośrednio do osoby, która zamówiła towar.")
-            st.markdown("- **Dodatkowi Odbiorcy:** Użyj **➕ Inni**, aby wysłać tę samą wiadomość do kilku osób naraz (np. na budowę).")
-            st.markdown("- **Narzędzia:** Ikona zębatki (**⚙️**) pozwala na edycję szczegółów lub usunięcie zamówienia.")
-
-        with st.container(border=True):
-            st.markdown("### 🔎 Historia i Raporty")
-            st.write("W sekcji **Historia i Raporty** możesz przeglądać wszystkie archiwalne zamówienia.")
-            st.markdown("- **Eksport danych:** Dostępne są dwa profesjonalne przyciski eksportu.")
-            st.markdown("- **Excel:** Pełna tabela z kolorami, gotowa do dalszej obróbki.")
-            st.markdown("- **PDF:** Przejrzysty dokument sformatowany pod wydruk **A4 w pionie**.")
-
-        with st.container(border=True):
-            st.markdown("### 👥 Bezpieczeństwo i Konta")
-            st.write("- Hasło Szefa (Emila) jest widoczne **tylko dla niego**.")
-            st.write("- Inni administratorzy widzą hasła użytkowników, aby móc im pomóc w logowaniu, ale nie widzą haseł innych adminów.")
-            st.warning("⚠️ Pamiętaj, aby przy dodawaniu konta podać numer telefonu z kodem kraju (np. 48123456789), aby WhatsApp działał poprawnie.")
+            st.markdown("### 💬 Czat i Sugestie")
+            st.write("To miejsce komunikacji. Masz pomysł na ulepszenie systemu? Napisz tutaj. Admin odpowie Ci bezpośrednio pod Twoim wpisem.")
+            st.write("Statusy:")
+            st.markdown("- **Oczekujące**: Wpis czeka na przeczytanie.")
+            st.markdown("- **Wprowadzone**: Twoja sugestia została już wdrożona do kodu aplikacji!")
