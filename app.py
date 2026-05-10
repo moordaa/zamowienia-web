@@ -159,9 +159,10 @@ else:
             st.success("Wszystkie zamówienia zrealizowane! 👏")
         else:
             for r in res.data:
-                # DODANO: Wyraźne obramowanie i wyróżniający się niebieski nagłówek dla każdego zamówienia
                 with st.container(border=True):
-                    st.info(f"### 📦 {r['pozycja'].upper()}\n**Zgłosił(a):** {r['zgloszone_przez']} | **Data:** {r['data_zgloszenia']}")
+                    # Bezpieczne wyświetlanie informacji
+                    st.info(f"### 📦 {r['pozycja'].upper()}")
+                    st.write(f"**Zgłosił(a):** {r['zgloszone_przez']} | **Data:** {r['data_zgloszenia']}")
                     
                     c_info1, c_info2, c_info3 = st.columns(3)
                     c_info1.write(f"**Ilość:** {r['ilosc']}")
@@ -217,11 +218,85 @@ else:
                         supabase.table("zamowienia").delete().eq("id", r['id']).execute()
                         st.rerun()
 
-                    # POWIADOMIENIA WHATSAPP (Teraz bezpieczne w expanderze - zawsze dostępne!)
+                    # POWIADOMIENIA WHATSAPP (Bezpieczne formatowanie tekstu)
                     with st.expander("📲 Powiadomienia WhatsApp (Wyślij po zapisaniu statusu)"):
                         st.write("Wybierz dodatkowe osoby, które chcesz powiadomić:")
                         wszyscy_pracownicy = list(pracownicy_dict.keys())
                         zainteresowani = st.multiselect("Dodatkowi pracownicy:", wszyscy_pracownicy, key=f"multi_{r['id']}")
                         
-                        # Wiadomość generuje się na podstawie tego, co jest aktualnie wybrane w oknach
-                        msg = f"Aktualizacja zamów
+                        # Bezpieczny string bez symboli nowej linii, które wywalały edytor
+                        msg = f"Aktualizacja zamówienia: {r['pozycja']} | Status: {n_st} | Uwagi: {n_uw}"
+                        
+                        tel_zgl = pracownicy_dict.get(r['zgloszone_przez'], '')
+                        if tel_zgl:
+                            nr_zgl = "".join(filter(str.isdigit, tel_zgl))
+                            st.link_button(f"👉 Powiadom zgłaszającego: {r['zgloszone_przez']}", 
+                                           f"https://wa.me/{nr_zgl}?text={urllib.parse.quote(msg)}", use_container_width=True)
+                        
+                        for osoba in zainteresowani:
+                            tel_zaint = pracownicy_dict.get(osoba, '')
+                            if tel_zaint:
+                                nr_zaint = "".join(filter(str.isdigit, tel_zaint))
+                                st.link_button(f"👉 Powiadom: {osoba}", 
+                                               f"https://wa.me/{nr_zaint}?text={urllib.parse.quote(msg)}", use_container_width=True)
+
+    # =========================================================================
+    # ZAKŁADKA: ZARZĄDZANIE KONTAMI
+    # =========================================================================
+    elif menu == "👥 Zarządzanie Kontami":
+        st.title("👥 Zarządzanie pracownikami")
+        with st.container(border=True):
+            st.subheader("➕ Dodaj nowe konto")
+            c1, c2, c3, c4 = st.columns(4)
+            n_log = c1.text_input("Login")
+            n_has = c2.text_input("Hasło") 
+            n_rol = c3.selectbox("Rola", ["użytkownik", "admin"])
+            n_tel = c4.text_input("Telefon (np. 48123456789)")
+            if st.button("Utwórz konto", type="primary"):
+                if n_log and n_has:
+                    supabase.table("pracownicy").insert({"login": n_log, "haslo": n_has, "rola": n_rol, "telefon": n_tel}).execute()
+                    st.success(f"Dodano: {n_log}"); time.sleep(1); st.rerun()
+                else:
+                    st.error("Login i Hasło są obowiązkowe!")
+
+        st.divider()
+        res_p = supabase.table("pracownicy").select("*").order("login").execute()
+        for p in res_p.data:
+            if not p.get('login'): continue
+            with st.container(border=True):
+                col_i, col_b = st.columns([5, 1])
+                haslo_widoczne = p.get('hasło') or p.get('haslo') or "???"
+                col_i.markdown(f"👤 **{p['login']}** | 🔑 Hasło: `{haslo_widoczne}` | 🛠️ Rola: `{p.get('rola')}` | 📞 Tel: `{p.get('telefon','')}`")
+                if p['login'].lower() != "emil":
+                    if col_b.button("🗑️ Usuń", key=f"dp_{p['login']}"):
+                        supabase.table("pracownicy").delete().eq("login", p['login']).execute(); st.rerun()
+
+    # =========================================================================
+    # RESZTA FUNKCJI
+    # =========================================================================
+    elif menu == "📊 Statystyki i Raporty":
+        st.title("📊 Statystyki")
+        res = supabase.table("zamowienia").select("*").execute()
+        if res.data:
+            df = pd.DataFrame(res.data)
+            st.bar_chart(df['projekt'].value_counts())
+        else: st.info("Brak danych.")
+
+    elif menu == "📋 Moje Aktywne":
+        st.title("📋 Twoje zamówienia")
+        res = supabase.table("zamowienia").select("*").eq("zgloszone_przez", st.session_state.uzytkownik).neq("status", "Zrealizowane").execute()
+        if not res.data: st.info("Brak aktywnych zamówień.")
+        for r in res.data:
+            with st.container(border=True):
+                st.info(f"### 📦 {r['pozycja'].upper()}")
+                render_status_alert(r['status'])
+                if r.get('uwagi_admina'): st.info(f"Odpis Admina: {r['uwagi_admina']}")
+
+    elif menu == "🔎 Historia i Szukaj":
+        st.title("🔎 Historia")
+        res = supabase.table("zamowienia").select("*").order("id", desc=True).execute()
+        if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
+
+    elif menu == "📖 Instrukcja":
+        st.title("📖 Instrukcja")
+        st.write("Panel admina pozwala na edycję wszystkich danych zamówienia i wysyłkę powiadomień do wielu osób.")
