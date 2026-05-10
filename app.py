@@ -59,7 +59,7 @@ if not st.session_state.zalogowany:
                         else: st.error("Błędne hasło!")
                     else: st.error("Użytkownik nie istnieje!")
 else:
-    # --- MENU BOCZNE (ZAKTUALIZOWANE NAZWY) ---
+    # --- MENU BOCZNE ---
     with st.sidebar:
         st.success(f"Zalogowano: **{st.session_state.uzytkownik}**")
         st.divider()
@@ -187,7 +187,7 @@ else:
             c2.download_button("📄 Pobierz PDF (A4 Pion)", pdf_bytes, "historia.pdf", use_container_width=True)
 
     # =========================================================================
-    # ZAKŁADKA: STATYSTYKI (ROZBUDOWANA)
+    # ZAKŁADKA: STATYSTYKI (CZYSTE I KONKRETNE)
     # =========================================================================
     elif menu == "📊 Statystyki":
         st.title("📊 Statystyki i Analityka")
@@ -231,13 +231,6 @@ else:
                 top_produkty = df['pozycja'].value_counts().head(5)
                 st.table(top_produkty)
 
-            st.divider()
-            with st.expander("💡 Podpowiedź: Co jeszcze może się przydać?"):
-                st.markdown("""
-                * **Koszty:** Jeśli dodamy kolumnę 'Cena', będziemy mogli generować wykresy wydatków na konkretne budowy.
-                * **Dostawcy:** Jeśli będziesz wpisywać, gdzie kupiłeś towar, statystyki pokażą, u którego dostawcy zostawiasz najwięcej pieniędzy.
-                * **Czas pracy admina:** Możemy mierzyć, jak szybko admin reaguje na zamówienie (zmienia status z Oczekujące na Zamówione).
-                """)
         else:
             st.info("Brak danych do wygenerowania statystyk.")
 
@@ -250,5 +243,33 @@ else:
                 render_status_alert(r['status'])
 
     elif menu == "📖 Instrukcja":
-        st.title("📖 Instrukcja")
-        st.write("W zakładce Statystyki sprawdzisz efektywność i najczęstsze wybory.")
+        st.title("📖 Instrukcja Obsługi Systemu")
+        
+        with st.container(border=True):
+            st.markdown("### 📝 Składanie Zamówień")
+            st.write("1. Wejdź w zakładkę **Nowe Zamówienie**.")
+            st.write("2. Wypełnij nazwę pozycji, ilość oraz dane techniczne (wymiary, materiał).")
+            st.write("3. Możesz zrobić zdjęcie telefonem (📷) lub wgrać plik PDF/Zdjęcie z dysku.")
+            st.write("4. Wybierz Admina, którego chcesz powiadomić i kliknij **Wyślij**.")
+            st.info("💡 Po wysłaniu pojawi się przycisk WhatsApp – kliknij go, aby od razu przesłać treść zamówienia do admina.")
+
+        with st.container(border=True):
+            st.markdown("### ⚙️ Zarządzanie Realizacją (Admin)")
+            st.write("Wszystkie aktywne zamówienia są widoczne w **Panelu Realizacji**.")
+            st.markdown("- **Zmiana statusu:** Wybierz nowy status z listy i wpisz notatkę, a następnie kliknij dyskietkę (**💾**).")
+            st.markdown("- **Powiadomienia:** Przycisk **📲 WA** wysyła aktualizację statusu bezpośrednio do osoby, która zamówiła towar.")
+            st.markdown("- **Dodatkowi Odbiorcy:** Użyj **➕ Inni**, aby wysłać tę samą wiadomość do kilku osób naraz (np. na budowę).")
+            st.markdown("- **Narzędzia:** Ikona zębatki (**⚙️**) pozwala na edycję szczegółów lub usunięcie zamówienia.")
+
+        with st.container(border=True):
+            st.markdown("### 🔎 Historia i Raporty")
+            st.write("W sekcji **Historia i Raporty** możesz przeglądać wszystkie archiwalne zamówienia.")
+            st.markdown("- **Eksport danych:** Dostępne są dwa profesjonalne przyciski eksportu.")
+            st.markdown("- **Excel:** Pełna tabela z kolorami, gotowa do dalszej obróbki.")
+            st.markdown("- **PDF:** Przejrzysty dokument sformatowany pod wydruk **A4 w pionie**.")
+
+        with st.container(border=True):
+            st.markdown("### 👥 Bezpieczeństwo i Konta")
+            st.write("- Hasło Szefa (Emila) jest widoczne **tylko dla niego**.")
+            st.write("- Inni administratorzy widzą hasła użytkowników, aby móc im pomóc w logowaniu, ale nie widzą haseł innych adminów.")
+            st.warning("⚠️ Pamiętaj, aby przy dodawaniu konta podać numer telefonu z kodem kraju (np. 48123456789), aby WhatsApp działał poprawnie.")
