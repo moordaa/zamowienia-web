@@ -160,35 +160,36 @@ else:
         else:
             for r in res.data:
                 with st.container(border=True):
-                    # 1. LINIA: Nagłówek i najważniejsze dane
                     st.markdown(f"### 📦 {r['pozycja'].upper()} `x {r['ilosc']}`")
                     st.markdown(f"👤 `{r['zgloszone_przez']}` | 🏗️ `{r.get('projekt') or '-'}` | 🚨 `{r.get('pilnosc') or 'Normalna'}` | 📏 `{r.get('wymiary') or '-'}`")
                     
-                    # 2. LINIA: Edycja statusu i notatki
                     c_st, c_uw, c_zap = st.columns([2, 4, 1])
                     st_list = ["Oczekujące", "Zamówione", "Niedostępne", "Zamiennik", "Zrealizowane"]
                     n_st = c_st.selectbox("Status", st_list, index=st_list.index(r['status']), key=f"st_sel_{r['id']}", label_visibility="collapsed")
                     n_uw = c_uw.text_input("Notatka", value=r.get('uwagi_admina') or "", key=f"uw_inp_{r['id']}", placeholder="Dodaj notatkę...", label_visibility="collapsed")
                     
                     if c_zap.button("💾 Zapisz", key=f"save_{r['id']}", type="primary", use_container_width=True):
-                        supabase.table("zamowienia").update({"status": n_st, "uwagi_admina": n_uw}).eq("id", r['id']).execute()
+                        # LOGIKA DATY REALIZACJI
+                        u_data = {"status": n_st, "uwagi_admina": n_uw}
+                        if n_st == "Zrealizowane":
+                            u_data["data_realizacji"] = str(datetime.today().date())
+                        else:
+                            u_data["data_realizacji"] = None # Czyścimy datę jeśli status nie jest 'Zrealizowane'
+                        
+                        supabase.table("zamowienia").update(u_data).eq("id", r['id']).execute()
                         st.toast("Zapisano!")
                         time.sleep(0.5); st.rerun()
 
-                    # 3. LINIA: WhatsApp i Narzędzia
                     b1, b2, b3, b4 = st.columns([2, 2, 1, 1])
-                    
                     msg = f"Aktualizacja: {r['pozycja']} | Status: {n_st} | Uwagi: {n_uw}"
                     tel_zgl = pracownicy_dict.get(r['zgloszone_przez'], '')
                     
-                    # PRZYCISK: Zgłaszający
                     if tel_zgl:
                         nr_zgl = "".join(filter(str.isdigit, tel_zgl))
                         b1.link_button(f"📲 WA: {r['zgloszone_przez']}", f"https://wa.me/{nr_zgl}?text={urllib.parse.quote(msg)}", use_container_width=True)
                     else:
                         b1.button(f"⚠️ {r['zgloszone_przez']} (Brak Tel)", disabled=True, use_container_width=True)
                     
-                    # PRZYCISK: Dodatkowi odbiorcy
                     with b2.popover("➕ WA Inni"):
                         st.write("Wybierz osoby do powiadomienia:")
                         lista_opcji = [k for k in pracownicy_dict.keys() if k != r['zgloszone_przez']]
@@ -198,10 +199,7 @@ else:
                             if t_os:
                                 n_os = "".join(filter(str.isdigit, t_os))
                                 st.link_button(f"Wyślij do: {os}", f"https://wa.me/{n_os}?text={urllib.parse.quote(msg)}", use_container_width=True)
-                            else:
-                                st.warning(f"Brak tel dla: {os}")
 
-                    # PRZYCISK: Pełna edycja i Usuwanie
                     with b3.popover("⚙️ Akcje"):
                         up_poz = st.text_input("Pozycja", value=r['pozycja'], key=f"ep_{r['id']}")
                         up_ilo = st.text_input("Ilość", value=r['ilosc'], key=f"ei_{r['id']}")
@@ -217,7 +215,6 @@ else:
                             supabase.table("zamowienia").delete().eq("id", r['id']).execute()
                             st.rerun()
 
-                    # PRZYCISK: Załącznik
                     if r.get('zdjecie_url'):
                         if r['zdjecie_url'].lower().endswith(".pdf"):
                             b4.link_button("📄 PDF", r['zdjecie_url'], use_container_width=True)
@@ -228,7 +225,7 @@ else:
                         b4.button("❌ 🖼️", disabled=True, use_container_width=True)
 
     # =========================================================================
-    # ZAKŁADKA: ZARZĄDZANIE KONTAMI (Z EDYCJĄ!)
+    # ZAKŁADKA: ZARZĄDZANIE KONTAMI
     # =========================================================================
     elif menu == "👥 Zarządzanie Kontami":
         st.title("👥 Zarządzanie pracownikami")
@@ -251,36 +248,45 @@ else:
         for p in res_p.data:
             if not p.get('login'): continue
             with st.container(border=True):
-                # Nowy podział kolumn: 4 na dane | 1 na edycję | 1 na usunięcie
                 col_info, col_edit, col_del = st.columns([4, 1, 1])
-                
                 aktualne_haslo = p.get('hasło') or p.get('haslo') or ""
                 haslo_widoczne = aktualne_haslo if aktualne_haslo else "???"
-                
-                # Zabezpieczenie hasła Emila
                 if p['login'].lower() == "emil" and st.session_state.uzytkownik.lower() != "emil":
                     haslo_widoczne = "••••••••"
-
                 col_info.markdown(f"👤 **{p['login']}** | 🔑 Hasło: `{haslo_widoczne}` | 🛠️ Rola: `{p.get('rola')}` | 📞 Tel: `{p.get('telefon','')}`")
                 
-                # Przycisk do EDYCJI danych użytkownika
                 with col_edit.popover("✏️ Edytuj"):
                     e_has = st.text_input("Nowe hasło", value=aktualne_haslo, key=f"eh_{p['login']}")
                     e_tel = st.text_input("Nowy telefon", value=p.get('telefon') or "", key=f"et_{p['login']}")
                     e_rol = st.selectbox("Rola", ["użytkownik", "admin"], index=0 if p.get('rola') == 'użytkownik' else 1, key=f"er_{p['login']}")
-                    
                     if st.button("💾 Zapisz", key=f"es_{p['login']}", type="primary", use_container_width=True):
-                        # Zapisujemy do kolumny 'haslo' (bo tę obsługuje Twój najnowszy kod zapisu)
                         supabase.table("pracownicy").update({"haslo": e_has, "telefon": e_tel, "rola": e_rol}).eq("login", p['login']).execute()
                         st.toast(f"Zapisano zmiany dla {p['login']}")
-                        time.sleep(0.5)
-                        st.rerun()
+                        time.sleep(0.5); st.rerun()
 
-                # Przycisk do USUWANIA konta
                 if p['login'].lower() != "emil":
                     if col_del.button("🗑️ Usuń", key=f"dp_{p['login']}", use_container_width=True):
-                        supabase.table("pracownicy").delete().eq("login", p['login']).execute()
-                        st.rerun()
+                        supabase.table("pracownicy").delete().eq("login", p['login']).execute(); st.rerun()
+
+    # =========================================================================
+    # ZAKŁADKA: HISTORIA I SZUKAJ
+    # =========================================================================
+    elif menu == "🔎 Historia i Szukaj":
+        st.title("🔎 Historia wszystkich zamówień")
+        res = supabase.table("zamowienia").select("*").order("id", desc=True).execute()
+        if res.data:
+            df = pd.DataFrame(res.data)
+            
+            # Formaltowanie kolumn dat, żeby ładnie wyglądały
+            # Wybieramy tylko te kolumny, które nas interesują w widoku tabeli
+            kolumny_do_pokazania = ["data_zgloszenia", "data_realizacji", "pozycja", "ilosc", "projekt", "zgloszone_przez", "status"]
+            
+            # Pokazujemy tabelę z opcją szukania
+            st.dataframe(df[kolumny_do_pokazania], use_container_width=True, hide_index=True)
+            
+            st.download_button("📥 Pobierz pełną historię (CSV)", df.to_csv(index=False).encode('utf-8-sig'), "historia_zamowien.csv", "text/csv")
+        else:
+            st.info("Historia jest pusta.")
 
     # =========================================================================
     # RESZTA FUNKCJI
@@ -303,11 +309,6 @@ else:
                 render_status_alert(r['status'])
                 if r.get('uwagi_admina'): st.info(f"Odpis Admina: {r['uwagi_admina']}")
 
-    elif menu == "🔎 Historia i Szukaj":
-        st.title("🔎 Historia")
-        res = supabase.table("zamowienia").select("*").order("id", desc=True).execute()
-        if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
-
     elif menu == "📖 Instrukcja":
         st.title("📖 Instrukcja")
-        st.write("Wszystkie operacje w Panelu Realizacji odbywają się w sposób zwarty. Użyj popoverów do edycji i powiadomień.")
+        st.write("W zakładce Historia pojawiła się nowa kolumna: Data Realizacji.")
