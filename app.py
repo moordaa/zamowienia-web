@@ -4,6 +4,9 @@ from datetime import datetime
 import pandas as pd
 import time
 import urllib.parse
+import io
+from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+from openpyxl.utils import get_column_letter
 
 # --- KONFIGURACJA ---
 URL = "https://hdmptdcuqxqutfgrgmrj.supabase.co"
@@ -169,7 +172,6 @@ else:
                     n_uw = c_uw.text_input("Notatka", value=r.get('uwagi_admina') or "", key=f"uw_inp_{r['id']}", placeholder="Dodaj notatkę...", label_visibility="collapsed")
                     
                     if c_zap.button("💾 Zapisz", key=f"save_{r['id']}", type="primary", use_container_width=True):
-                        # Zapisywanie statusu i opcjonalnie daty realizacji
                         u_data = {"status": n_st, "uwagi_admina": n_uw}
                         if n_st == "Zrealizowane":
                             u_data["data_realizacji"] = str(datetime.today().date())
@@ -269,7 +271,7 @@ else:
                         supabase.table("pracownicy").delete().eq("login", p['login']).execute(); st.rerun()
 
     # =========================================================================
-    # ZAKŁADKA: HISTORIA I SZUKAJ (PRZYWRÓCONA TABELA)
+    # ZAKŁADKA: HISTORIA I SZUKAJ (NOWE, PROFESJONALNE EKSPORTY)
     # =========================================================================
     elif menu == "🔎 Historia i Szukaj":
         st.title("🔎 Pełna baza zamówień")
@@ -297,11 +299,98 @@ else:
         if wynik:
             df_h = pd.DataFrame(wynik)
             
-            # Wstawienie pełnej, szerokiej tabeli z wszystkimi danymi (i nową datą)
+            # Wstawienie pełnej tabeli podglądu na stronie (zostawiamy oryginalne nazwy kolumn dla aplikacji)
             st.dataframe(df_h, use_container_width=True, hide_index=True)
             
-            csv = '\ufeff'.encode('utf8') + df_h.to_csv(index=False, sep=';').encode('utf-8')
-            st.download_button("📥 Pobierz historię do Excela", csv, "historia.csv", "text/csv")
+            # --- PRZYGOTOWANIE DANYCH DO EKSPORTU ---
+            df_export = df_h[["data_zgloszenia", "data_realizacji", "pozycja", "ilosc", "projekt", "zgloszone_przez", "status"]].copy()
+            df_export.columns = ["Zgłoszono", "Zrealizowano", "Pozycja", "Ilość", "Projekt", "Zgłaszający", "Status"]
+            
+            # Obliczanie zakresu dat na potrzeby nagłówków
+            min_date = df_export['Zgłoszono'].min() if not df_export.empty else "Brak"
+            max_date = df_export['Zgłoszono'].max() if not df_export.empty else "Brak"
+            zakres_dat = f"{min_date} do {max_date}"
+
+            col_ex1, col_ex2 = st.columns(2)
+
+            # === 1. ZAAWANSOWANY EKSPORT DO EXCELA (openpyxl) ===
+            output_excel = io.BytesIO()
+            with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
+                df_export.to_excel(writer, index=False, sheet_name='Historia', startrow=2)
+                ws = writer.sheets['Historia']
+                
+                # Dodawanie i stylizowanie Tytułu / Nagłówka
+                ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_export.columns))
+                cell_title = ws.cell(row=1, column=1)
+                cell_title.value = f"HISTORIA ZAMÓWIEŃ (Zakres: {zakres_dat})"
+                cell_title.font = Font(size=14, bold=True, color="FFFFFF")
+                cell_title.fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+                cell_title.alignment = Alignment(horizontal="center", vertical="center")
+                ws.row_dimensions[1].height = 30
+                
+                # Stylizacja nagłówków kolumn i dodawanie ramek
+                thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+                for col_num in range(1, len(df_export.columns) + 1):
+                    c = ws.cell(row=3, column=col_num)
+                    c.font = Font(bold=True, color="FFFFFF")
+                    c.fill = PatternFill(start_color="2F75B5", end_color="2F75B5", fill_type="solid")
+                    c.alignment = Alignment(horizontal="center", vertical="center")
+                    c.border = thin_border
+                
+                # Stylizacja samych danych
+                for row in ws.iter_rows(min_row=4, max_row=len(df_export)+3, min_col=1, max_col=len(df_export.columns)):
+                    for c in row:
+                        c.border = thin_border
+                        c.alignment = Alignment(horizontal="left", vertical="center")
+                
+                # Dopasowywanie szerokości kolumn do wydruku
+                for i, col in enumerate(df_export.columns, 1):
+                    ws.column_dimensions[get_column_letter(i)].width = 18
+                
+                # Ustawienia strony idealne pod wydruk A4 Poziomo
+                ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+                ws.page_setup.paperSize = ws.PAPERSIZE_A4
+                ws.page_setup.fitToPage = True
+                ws.page_setup.fitToHeight = 0
+                ws.page_setup.fitToWidth = 1
+            
+            excel_data = output_excel.getvalue()
+            col_ex1.download_button("📊 Pobierz dopracowany Excel (A4)", excel_data, "historia_zamowien.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+
+            # === 2. EKSPORT DO PDF (HTML FORMATOWANY DLA DRUKAREK) ===
+            html_rows = ""
+            for _, r in df_export.iterrows():
+                # Bezpieczne zamienianie pustych wartości na kreskę
+                data_realizacji = r['Zrealizowano'] if pd.notna(r['Zrealizowano']) and r['Zrealizowano'] else "-"
+                projekt = r['Projekt'] if pd.notna(r['Projekt']) and r['Projekt'] else "-"
+                
+                html_rows += f"<tr><td>{r['Zgłoszono']}</td><td>{data_realizacji}</td><td>{r['Pozycja']}</td><td>{r['Ilość']}</td><td>{projekt}</td><td>{r['Zgłaszający']}</td><td>{r['Status']}</td></tr>"
+                
+            html_template = f"""
+            <html><head><meta charset="UTF-8"><title>Raport Zamówień</title>
+            <style>
+                @page {{ size: A4 landscape; margin: 15mm; }}
+                body {{ font-family: 'Arial', sans-serif; color: #333; }}
+                h2 {{ text-align: center; color: #1F4E78; border-bottom: 2px solid #1F4E78; padding-bottom: 10px; }}
+                .date {{ text-align: center; font-weight: bold; margin-bottom: 25px; font-size: 14px; color: #555; }}
+                table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }}
+                th, td {{ border: 1px solid #ccc; padding: 10px; text-align: left; }}
+                th {{ background-color: #2F75B5; color: white; font-weight: bold; text-transform: uppercase; }}
+                tr:nth-child(even) {{ background-color: #f5f5f5; }}
+            </style>
+            </head>
+            <body onload="window.print()">
+                <h2>RAPORT HISTORII ZAMÓWIEŃ</h2>
+                <div class="date">Zakres zamówień: {zakres_dat}</div>
+                <table>
+                    <tr><th>Zgłoszono</th><th>Zrealizowano</th><th>Pozycja</th><th>Ilość</th><th>Projekt</th><th>Zgłaszający</th><th>Status</th></tr>
+                    {html_rows}
+                </table>
+            </body></html>
+            """
+            
+            col_ex2.download_button("📄 Pobierz do druku (jako PDF)", html_template.encode('utf-8-sig'), "raport_zamowien.html", "text/html", use_container_width=True)
+            
         else:
             st.info("Nie znaleziono zamówień spełniających kryteria.")
 
@@ -328,4 +417,4 @@ else:
 
     elif menu == "📖 Instrukcja":
         st.title("📖 Instrukcja")
-        st.write("W zakładce Historia wyświetla się teraz pełna tabela z możliwością wyszukiwania i pobrania excela.")
+        st.write("W zakładce Historia znajdziesz teraz przyciski do profesjonalnego eksportu.")
