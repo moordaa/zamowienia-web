@@ -169,12 +169,11 @@ else:
                     n_uw = c_uw.text_input("Notatka", value=r.get('uwagi_admina') or "", key=f"uw_inp_{r['id']}", placeholder="Dodaj notatkę...", label_visibility="collapsed")
                     
                     if c_zap.button("💾 Zapisz", key=f"save_{r['id']}", type="primary", use_container_width=True):
-                        # LOGIKA DATY REALIZACJI
                         u_data = {"status": n_st, "uwagi_admina": n_uw}
                         if n_st == "Zrealizowane":
                             u_data["data_realizacji"] = str(datetime.today().date())
                         else:
-                            u_data["data_realizacji"] = None # Czyścimy datę jeśli status nie jest 'Zrealizowane'
+                            u_data["data_realizacji"] = None
                         
                         supabase.table("zamowienia").update(u_data).eq("id", r['id']).execute()
                         st.toast("Zapisano!")
@@ -269,24 +268,70 @@ else:
                         supabase.table("pracownicy").delete().eq("login", p['login']).execute(); st.rerun()
 
     # =========================================================================
-    # ZAKŁADKA: HISTORIA I SZUKAJ
+    # ZAKŁADKA: HISTORIA I SZUKAJ (PRZYWRÓCONA PEŁNA WERSJA)
     # =========================================================================
     elif menu == "🔎 Historia i Szukaj":
-        st.title("🔎 Historia wszystkich zamówień")
-        res = supabase.table("zamowienia").select("*").order("id", desc=True).execute()
-        if res.data:
-            df = pd.DataFrame(res.data)
+        st.title("🔎 Pełna baza zamówień")
+        
+        # Pobieranie danych do filtrów
+        res_all = supabase.table("zamowienia").select("projekt, zgloszone_przez").execute()
+        projekty = sorted(list(set([x['projekt'] for x in res_all.data if x.get('projekt')])))
+        osoby = sorted(list(set([x['zgloszone_przez'] for x in res_all.data if x.get('zgloszone_przez')])))
+        
+        with st.container(border=True):
+            f_col1, f_col2, f_col3, f_col4 = st.columns(4)
+            f_slowo = f_col1.text_input("🔍 Szukaj nazwy...")
+            f_proj = f_col2.selectbox("🏗️ Projekt", ["-- Wszystkie --"] + projekty)
+            f_kto = f_col3.selectbox("👤 Kto zgłosił", ["-- Wszyscy --"] + osoby)
+            f_status = f_col4.selectbox("📌 Status", ["-- Wszystkie --", "Oczekujące", "Zamówione", "Niedostępne", "Zamiennik", "Zrealizowane"])
             
-            # Formaltowanie kolumn dat, żeby ładnie wyglądały
-            # Wybieramy tylko te kolumny, które nas interesują w widoku tabeli
-            kolumny_do_pokazania = ["data_zgloszenia", "data_realizacji", "pozycja", "ilosc", "projekt", "zgloszone_przez", "status"]
+            q = supabase.table("zamowienia").select("*")
+            if f_proj != "-- Wszystkie --": q = q.eq("projekt", f_proj)
+            if f_kto != "-- Wszyscy --": q = q.eq("zgloszone_przez", f_kto)
+            if f_status != "-- Wszystkie --": q = q.eq("status", f_status)
             
-            # Pokazujemy tabelę z opcją szukania
-            st.dataframe(df[kolumny_do_pokazania], use_container_width=True, hide_index=True)
+            wynik = q.order("id", desc=True).execute().data
+            if f_slowo:
+                wynik = [x for x in wynik if f_slowo.lower() in x['pozycja'].lower()]
+
+        if wynik:
+            st.caption(f"Znaleziono: {len(wynik)} zamówień")
+            # Przycisk pobierania Excela
+            df_export = pd.DataFrame(wynik)
+            st.download_button("📥 Pobierz historię (CSV)", df_export.to_csv(index=False).encode('utf-8-sig'), "historia.csv", "text/csv")
             
-            st.download_button("📥 Pobierz pełną historię (CSV)", df.to_csv(index=False).encode('utf-8-sig'), "historia_zamowien.csv", "text/csv")
+            for r in wynik:
+                with st.container(border=True):
+                    # Nagłówek karty historii
+                    h_col1, h_col2 = st.columns([4, 1])
+                    h_col1.markdown(f"### 📦 {r['pozycja'].upper()} `x {r['ilosc']}`")
+                    
+                    ikona = status_emoji.get(r['status'], "🔹")
+                    h_col2.markdown(f"**{ikona} {r['status']}**")
+                    
+                    # Dane szczegółowe w historii
+                    d_col1, d_col2, d_col3 = st.columns(3)
+                    d_col1.markdown(f"**📅 Zgłoszono:** `{r['data_zgloszenia']}`")
+                    d_col1.markdown(f"**📅 Realizacja:** `{r.get('data_realizacji') or '---'}`")
+                    
+                    d_col2.markdown(f"**🏗️ Projekt:** {r.get('projekt') or '---'}")
+                    d_col2.markdown(f"**👤 Zgłosił:** {r['zgloszone_przez']}")
+                    
+                    d_col3.markdown(f"**📏 Wymiary:** {r.get('wymiary') or '---'}")
+                    d_col3.markdown(f"**🧱 Materiał:** {r.get('material') or '---'}")
+                    
+                    if r.get('uwagi_admina'):
+                        st.info(f"**💬 Notatka admina:** {r['uwagi_admina']}")
+                    
+                    # Załącznik w historii
+                    if r.get('zdjecie_url'):
+                        with st.expander("🖼️ Zobacz załącznik"):
+                            if r['zdjecie_url'].lower().endswith(".pdf"):
+                                st.link_button("📄 Otwórz PDF", r['zdjecie_url'])
+                            else:
+                                st.image(r['zdjecie_url'], use_container_width=True)
         else:
-            st.info("Historia jest pusta.")
+            st.info("Nie znaleziono zamówień spełniających kryteria.")
 
     # =========================================================================
     # RESZTA FUNKCJI
@@ -311,4 +356,4 @@ else:
 
     elif menu == "📖 Instrukcja":
         st.title("📖 Instrukcja")
-        st.write("W zakładce Historia pojawiła się nowa kolumna: Data Realizacji.")
+        st.write("Historia została przywrócona do pełnej, czytelnej formy z filtrami i pełnymi danymi.")
