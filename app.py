@@ -29,18 +29,15 @@ if not st.session_state.zalogowany:
             l = st.text_input("Login")
             p = st.text_input("Hasło", type="password")
             if st.button("ZALOGUJ", use_container_width=True, type="primary"):
-                # Wyjście awaryjne dla admina głównego
                 if l == "Emil" and p == "Sosna100%":
                     st.session_state.zalogowany = True
                     st.session_state.uzytkownik = "Emil"
                     st.session_state.rola = "admin"
                     st.rerun()
                 else:
-                    # Sprawdzanie w bazie (używamy 'hasło' lub 'haslo' w zależności co masz w DB)
                     res = supabase.table("pracownicy").select("*").eq("login", l).execute()
                     if res.data:
                         user_data = res.data[0]
-                        # Sprawdzamy hasło (obsługujemy obie wersje nazwy kolumny dla pewności)
                         db_password = user_data.get('hasło') or user_data.get('haslo')
                         if db_password == p:
                             st.session_state.zalogowany = True
@@ -186,7 +183,7 @@ else:
                         c_w.link_button("📲 Wyślij WA", f"https://wa.me/{nr_c}?text={urllib.parse.quote(msg)}", use_container_width=True)
 
     # =========================================================================
-    # ZAKŁADKA: ZARZĄDZANIE KONTAMI (Z WYŚWIETLANIEM HASŁA)
+    # ZAKŁADKA: ZARZĄDZANIE KONTAMI
     # =========================================================================
     elif menu == "👥 Zarządzanie Kontami":
         st.title("👥 Zarządzanie pracownikami")
@@ -195,13 +192,14 @@ else:
             st.subheader("➕ Dodaj nowe konto")
             c1, c2, c3, c4 = st.columns(4)
             n_log = c1.text_input("Login")
-            n_has = c2.text_input("Hasło") # Tu wpisujemy hasło dla nowego pracownika
+            n_has = c2.text_input("Hasło") 
             n_rol = c3.selectbox("Rola", ["użytkownik", "admin"])
             n_tel = c4.text_input("Telefon (np. 48123456789)")
             if st.button("Utwórz konto", type="primary"):
                 if n_log and n_has:
-                    # Zapisujemy do bazy pod Twoją nazwą kolumny 'hasło'
-                    supabase.table("pracownicy").insert({"login": n_log, "hasło": n_has, "rola": n_rol, "telefon": n_tel}).execute()
+                    # TUTAJ ZMIANA: Zmienione "hasło" na "haslo" (bez polskich znaków), 
+                    # żeby baza danych Supabase poprawnie przyjęła dane.
+                    supabase.table("pracownicy").insert({"login": n_log, "haslo": n_has, "rola": n_rol, "telefon": n_tel}).execute()
                     st.success(f"Dodano: {n_log}"); time.sleep(1); st.rerun()
                 else:
                     st.error("Login i Hasło są obowiązkowe!")
@@ -219,11 +217,9 @@ else:
                 with st.container(border=True):
                     col_i, col_b = st.columns([5, 1])
                     
-                    # POBIERANIE HASŁA (próbuje 'hasło' lub 'haslo')
                     haslo_widoczne = p.get('hasło') or p.get('haslo') or "???"
                     rola_p = p.get('rola') or "użytkownik"
                     
-                    # WYŚWIETLANIE (Teraz z hasłem!)
                     col_i.markdown(f"👤 **{p['login']}** | 🔑 Hasło: `{haslo_widoczne}` | 🛠️ Rola: `{rola_p}` | 📞 Tel: `{p.get('telefon','')}`")
                     
                     if p['login'].lower() != "emil":
@@ -231,7 +227,7 @@ else:
                             supabase.table("pracownicy").delete().eq("login", p['login']).execute(); st.rerun()
 
     # =========================================================================
-    # RESZTA FUNKCJI (STATYSTYKI, HISTORIA)
+    # RESZTA FUNKCJI
     # =========================================================================
     elif menu == "📊 Statystyki i Raporty":
         st.title("📊 Statystyki")
