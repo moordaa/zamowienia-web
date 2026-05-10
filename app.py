@@ -5,6 +5,9 @@ import pandas as pd
 import time
 import urllib.parse
 import io
+import os
+import tempfile
+import urllib.request
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -84,13 +87,12 @@ else:
         elif status_text == "Oczekujące": st.warning(msg)
         else: st.info(msg)
 
-    # --- BEZPIECZNA FUNKCJA GENEROWANIA PDF ---
+    # --- BEZPIECZNA FUNKCJA GENEROWANIA PDF (PIONOWA A4) ---
     def make_real_pdf(df, title_text):
-        pdf = FPDF(orientation="L", unit="mm", format="A4")
+        # orientation="P" oznacza Portrait (Pionowo)
+        pdf = FPDF(orientation="P", unit="mm", format="A4")
         pdf.add_page()
-        pdf.set_font("Arial", "B", 14)
         
-        # Funkcja czyszcząca polskie znaki, by nie wywołać błędów
         def cln(text):
             if pd.isna(text) or text is None: return "-"
             text = str(text)
@@ -99,38 +101,39 @@ else:
             for k, v in mapping.items(): text = text.replace(k, v)
             return text.encode('ascii', 'ignore').decode('ascii')
 
-        # Tytuł (kompatybilne z każdą wersją FPDF)
-        pdf.cell(0, 10, cln(title_text), ln=1, align="C")
-        pdf.ln(5)
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 8, cln(title_text), ln=1, align="C")
+        pdf.ln(3)
 
-        # Nagłówki
-        pdf.set_font("Arial", "", 7)
-        cols = ["Zgloszenie", "Realizacja", "Pozycja", "Wymiary", "Material", "Ilosc", "Projekt", "Pilnosc", "Zglaszajacy", "Status", "Uwagi"]
-        widths = [20, 20, 38, 20, 20, 12, 25, 18, 25, 23, 56]
+        # Mniejsza czcionka, żeby zmieścić 11 kolumn na 21 centymetrach szerokości kartki
+        pdf.set_font("Arial", "", 5.5)
+        
+        # Szerokości kolumn dostosowane do pionowej A4 (Suma: ~190mm)
+        cols = ["Zglosz.", "Realiz.", "Pozycja", "Wymiary", "Material", "Ilosc", "Projekt", "Pilnosc", "Zglosil", "Status", "Uwagi"]
+        widths = [14, 14, 26, 14, 14, 8, 16, 12, 16, 16, 38]
         
         pdf.set_fill_color(47, 117, 181)
         pdf.set_text_color(255, 255, 255)
         for i, col in enumerate(cols):
-            pdf.cell(widths[i], 8, cln(col), border=1, align="C", fill=True)
+            pdf.cell(widths[i], 6, cln(col), border=1, align="C", fill=True)
         pdf.ln()
 
         # Wiersze z danymi
         pdf.set_text_color(0, 0, 0)
         for _, row in df.iterrows():
-            pdf.cell(widths[0], 7, cln(row['Zgłoszono'])[:10], border=1)
-            pdf.cell(widths[1], 7, cln(row['Zrealizowano'])[:10], border=1)
-            pdf.cell(widths[2], 7, cln(row['Pozycja'])[:25], border=1)
-            pdf.cell(widths[3], 7, cln(row['Wymiary'])[:12], border=1)
-            pdf.cell(widths[4], 7, cln(row['Materiał'])[:12], border=1)
-            pdf.cell(widths[5], 7, cln(row['Ilość'])[:8], border=1)
-            pdf.cell(widths[6], 7, cln(row['Projekt'])[:15], border=1)
-            pdf.cell(widths[7], 7, cln(row['Pilność'])[:10], border=1)
-            pdf.cell(widths[8], 7, cln(row['Zgłaszający'])[:15], border=1)
-            pdf.cell(widths[9], 7, cln(row['Status'])[:15], border=1)
-            pdf.cell(widths[10], 7, cln(row['Uwagi'])[:35], border=1)
+            pdf.cell(widths[0], 5, cln(row['Zgłoszono'])[:10], border=1)
+            pdf.cell(widths[1], 5, cln(row['Zrealizowano'])[:10], border=1)
+            pdf.cell(widths[2], 5, cln(row['Pozycja'])[:20], border=1)
+            pdf.cell(widths[3], 5, cln(row['Wymiary'])[:10], border=1)
+            pdf.cell(widths[4], 5, cln(row['Materiał'])[:10], border=1)
+            pdf.cell(widths[5], 5, cln(row['Ilość'])[:6], border=1)
+            pdf.cell(widths[6], 5, cln(row['Projekt'])[:12], border=1)
+            pdf.cell(widths[7], 5, cln(row['Pilność'])[:8], border=1)
+            pdf.cell(widths[8], 5, cln(row['Zgłaszający'])[:12], border=1)
+            pdf.cell(widths[9], 5, cln(row['Status'])[:12], border=1)
+            pdf.cell(widths[10], 5, cln(row['Uwagi'])[:32], border=1)
             pdf.ln()
 
-        # Bezpieczny zwrot bajtów pliku
         try:
             out = pdf.output(dest='S')
             if isinstance(out, str): return out.encode('latin1')
@@ -305,7 +308,7 @@ else:
                         supabase.table("pracownicy").delete().eq("login", p['login']).execute(); st.rerun()
 
     # =========================================================================
-    # ZAKŁADKA: HISTORIA I SZUKAJ (W TYM EKSPORTY NA DYSK)
+    # ZAKŁADKA: HISTORIA I SZUKAJ
     # =========================================================================
     elif menu == "🔎 Historia i Szukaj":
         st.title("🔎 Pełna baza zamówień")
@@ -334,7 +337,6 @@ else:
             df_h = pd.DataFrame(wynik)
             st.dataframe(df_h, use_container_width=True, hide_index=True)
             
-            # --- PRZYGOTOWANIE DO EKSPORTU ---
             df_export = df_h[["data_zgloszenia", "data_realizacji", "pozycja", "wymiary", "material", "ilosc", "projekt", "pilnosc", "zgloszone_przez", "status", "uwagi_admina"]].copy()
             df_export.columns = ["Zgłoszono", "Zrealizowano", "Pozycja", "Wymiary", "Materiał", "Ilość", "Projekt", "Pilność", "Zgłaszający", "Status", "Uwagi"]
             
@@ -344,7 +346,7 @@ else:
 
             col_ex1, col_ex2 = st.columns(2)
 
-            # --- EXPORT EXCEL (openpyxl) ---
+            # --- EXPORT EXCEL (openpyxl) PIONOWY ---
             try:
                 output_excel = io.BytesIO()
                 with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
@@ -371,18 +373,22 @@ else:
                             c.alignment = Alignment(horizontal="left", vertical="center")
                     
                     for i, col in enumerate(df_export.columns, 1): ws.column_dimensions[get_column_letter(i)].width = 18
-                    ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+                    
+                    # ZMIANA: ORIENTACJA PIONOWA
+                    ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
                     ws.page_setup.paperSize = ws.PAPERSIZE_A4
                     ws.page_setup.fitToPage = True
+                    ws.page_setup.fitToHeight = 0
+                    ws.page_setup.fitToWidth = 1
                 
-                col_ex1.download_button("📊 Pobierz Excel na dysk", output_excel.getvalue(), "historia_zamowien.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                col_ex1.download_button("📊 Pobierz Excel na dysk (A4 Pion)", output_excel.getvalue(), "historia_zamowien.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
             except Exception as e:
                 col_ex1.error("Błąd generowania Excela. Zainstaluj openpyxl")
 
-            # --- EXPORT PDF (PRAWDZIWY PLIK) ---
+            # --- EXPORT PDF (PRAWDZIWY PLIK) PIONOWY ---
             try:
                 pdf_bytes = make_real_pdf(df_export, f"HISTORIA ZAMOWIEN (Zakres: {zakres_dat})")
-                col_ex2.download_button("📄 Pobierz PDF na dysk", data=pdf_bytes, file_name="historia_zamowien.pdf", mime="application/pdf", use_container_width=True)
+                col_ex2.download_button("📄 Pobierz PDF na dysk (A4 Pion)", data=pdf_bytes, file_name="historia_zamowien.pdf", mime="application/pdf", use_container_width=True)
             except Exception as e:
                 col_ex2.error(f"Wystąpił błąd podczas generowania PDF: {e}")
 
@@ -412,4 +418,4 @@ else:
 
     elif menu == "📖 Instrukcja":
         st.title("📖 Instrukcja")
-        st.write("Aplikacja bezpiecznie generuje niezależne pliki PDF i Excel bez awarii.")
+        st.write("Eksport PDF został przerobiony na format A4 w pionie (Portrait).")
