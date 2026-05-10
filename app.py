@@ -228,7 +228,7 @@ else:
                         b4.button("❌ 🖼️", disabled=True, use_container_width=True)
 
     # =========================================================================
-    # ZAKŁADKA: ZARZĄDZANIE KONTAMI
+    # ZAKŁADKA: ZARZĄDZANIE KONTAMI (Z EDYCJĄ!)
     # =========================================================================
     elif menu == "👥 Zarządzanie Kontami":
         st.title("👥 Zarządzanie pracownikami")
@@ -251,19 +251,36 @@ else:
         for p in res_p.data:
             if not p.get('login'): continue
             with st.container(border=True):
-                col_i, col_b = st.columns([5, 1])
-                haslo_widoczne = p.get('hasło') or p.get('haslo') or "???"
+                # Nowy podział kolumn: 4 na dane | 1 na edycję | 1 na usunięcie
+                col_info, col_edit, col_del = st.columns([4, 1, 1])
                 
-                # --- ZABEZPIECZENIE HASŁA EMILA ---
+                aktualne_haslo = p.get('hasło') or p.get('haslo') or ""
+                haslo_widoczne = aktualne_haslo if aktualne_haslo else "???"
+                
+                # Zabezpieczenie hasła Emila
                 if p['login'].lower() == "emil" and st.session_state.uzytkownik.lower() != "emil":
                     haslo_widoczne = "••••••••"
-                # ----------------------------------
 
-                col_i.markdown(f"👤 **{p['login']}** | 🔑 Hasło: `{haslo_widoczne}` | 🛠️ Rola: `{p.get('rola')}` | 📞 Tel: `{p.get('telefon','')}`")
+                col_info.markdown(f"👤 **{p['login']}** | 🔑 Hasło: `{haslo_widoczne}` | 🛠️ Rola: `{p.get('rola')}` | 📞 Tel: `{p.get('telefon','')}`")
                 
+                # Przycisk do EDYCJI danych użytkownika
+                with col_edit.popover("✏️ Edytuj"):
+                    e_has = st.text_input("Nowe hasło", value=aktualne_haslo, key=f"eh_{p['login']}")
+                    e_tel = st.text_input("Nowy telefon", value=p.get('telefon') or "", key=f"et_{p['login']}")
+                    e_rol = st.selectbox("Rola", ["użytkownik", "admin"], index=0 if p.get('rola') == 'użytkownik' else 1, key=f"er_{p['login']}")
+                    
+                    if st.button("💾 Zapisz", key=f"es_{p['login']}", type="primary", use_container_width=True):
+                        # Zapisujemy do kolumny 'haslo' (bo tę obsługuje Twój najnowszy kod zapisu)
+                        supabase.table("pracownicy").update({"haslo": e_has, "telefon": e_tel, "rola": e_rol}).eq("login", p['login']).execute()
+                        st.toast(f"Zapisano zmiany dla {p['login']}")
+                        time.sleep(0.5)
+                        st.rerun()
+
+                # Przycisk do USUWANIA konta
                 if p['login'].lower() != "emil":
-                    if col_b.button("🗑️ Usuń", key=f"dp_{p['login']}"):
-                        supabase.table("pracownicy").delete().eq("login", p['login']).execute(); st.rerun()
+                    if col_del.button("🗑️ Usuń", key=f"dp_{p['login']}", use_container_width=True):
+                        supabase.table("pracownicy").delete().eq("login", p['login']).execute()
+                        st.rerun()
 
     # =========================================================================
     # RESZTA FUNKCJI
