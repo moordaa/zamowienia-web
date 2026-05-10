@@ -29,20 +29,28 @@ if not st.session_state.zalogowany:
             l = st.text_input("Login")
             p = st.text_input("Hasło", type="password")
             if st.button("ZALOGUJ", use_container_width=True, type="primary"):
+                # Wyjście awaryjne dla admina głównego
                 if l == "Emil" and p == "Sosna100%":
                     st.session_state.zalogowany = True
                     st.session_state.uzytkownik = "Emil"
                     st.session_state.rola = "admin"
                     st.rerun()
                 else:
-                    res = supabase.table("pracownicy").select("*").eq("login", l).eq("haslo", p).execute()
+                    # Sprawdzanie w bazie (używamy 'hasło' lub 'haslo' w zależności co masz w DB)
+                    res = supabase.table("pracownicy").select("*").eq("login", l).execute()
                     if res.data:
-                        st.session_state.zalogowany = True
-                        st.session_state.uzytkownik = l
-                        st.session_state.rola = res.data[0].get('rola') or "użytkownik"
-                        st.rerun()
+                        user_data = res.data[0]
+                        # Sprawdzamy hasło (obsługujemy obie wersje nazwy kolumny dla pewności)
+                        db_password = user_data.get('hasło') or user_data.get('haslo')
+                        if db_password == p:
+                            st.session_state.zalogowany = True
+                            st.session_state.uzytkownik = l
+                            st.session_state.rola = user_data.get('rola') or "użytkownik"
+                            st.rerun()
+                        else:
+                            st.error("Błędne hasło!")
                     else:
-                        st.error("Błędny login lub hasło!")
+                        st.error("Użytkownik nie istnieje!")
 else:
     # --- MENU BOCZNE ---
     with st.sidebar:
@@ -85,11 +93,9 @@ else:
         
         with st.container(border=True):
             pozycja = st.text_input("🔧 Pozycja (np. Śruba zamkowa)")
-            
             col1, col2 = st.columns(2)
             wymiary = col1.text_input("📏 Wymiary (np. M8x40)")
             material = col2.text_input("🧱 Materiał (np. Ocynk)")
-            
             col3, col4 = st.columns(2)
             ilosc = st.text_input("🔢 Ilość (np. 100 szt.)")
             pilnosc = col4.selectbox("🚨 Pilność", ["Normalna", "PILNE ⚡", "KRYTYCZNE 🛑"])
@@ -97,15 +103,11 @@ else:
 
             st.divider()
             st.subheader("📸 Załącznik (Zdjęcie lub PDF)")
-            
-            # --- SEKCJA PLIKÓW ---
             zal_col1, zal_col2 = st.columns(2)
-            
             zdjecie_cam = None
             if zal_col1.toggle("📷 Użyj aparatu"):
                 zdjecie_cam = st.camera_input("Zrób zdjęcie")
-                
-            plik_upload = zal_col2.file_uploader("📁 Wybierz plik z galerii/dysku", type=["jpg", "jpeg", "png", "pdf"])
+            plik_upload = zal_col2.file_uploader("📁 Wybierz plik", type=["jpg", "jpeg", "png", "pdf"])
 
             st.divider()
             opcje_wa = ["-- Nie wysyłaj --"] + list(admin_phones.keys())
@@ -115,23 +117,18 @@ else:
                 if pozycja and ilosc:
                     url_zdj = ""
                     final_file = None
-                    extension = "jpg" # domyślne
-
-                    # Logika wyboru pliku: priorytet ma aparat, jeśli nie - uploader
+                    ext = "jpg"
                     if zdjecie_cam:
                         final_file = zdjecie_cam.getvalue()
-                        extension = "jpg"
                     elif plik_upload:
                         final_file = plik_upload.getvalue()
-                        extension = plik_upload.name.split('.')[-1]
+                        ext = plik_upload.name.split('.')[-1]
 
                     if final_file:
-                        nazwa_pliku = f"{int(time.time())}_{st.session_state.uzytkownik}.{extension}"
-                        # Content-type dla PDF musi być inny niż dla zdjęć
-                        c_type = "application/pdf" if extension.lower() == "pdf" else "image/jpeg"
-                        
-                        supabase.storage.from_("zdjecia_zamowien").upload(nazwa_pliku, final_file, {"content-type": c_type})
-                        url_zdj = supabase.storage.from_("zdjecia_zamowien").get_public_url(nazwa_pliku)
+                        nazwa = f"{int(time.time())}_{st.session_state.uzytkownik}.{ext}"
+                        c_type = "application/pdf" if ext.lower() == "pdf" else "image/jpeg"
+                        supabase.storage.from_("zdjecia_zamowien").upload(nazwa, final_file, {"content-type": c_type})
+                        url_zdj = supabase.storage.from_("zdjecia_zamowien").get_public_url(nazwa)
 
                     supabase.table("zamowienia").insert({
                         "pozycja": pozycja, "wymiary": wymiary, "material": material, "ilosc": ilosc, 
@@ -143,13 +140,12 @@ else:
                     st.success("Wysłano pomyślnie!")
                     if powiadom != "-- Nie wysyłaj --":
                         nr = "".join(c for c in admin_phones[powiadom] if c.isdigit())
-                        t = f"Nowe zamówienie: {pozycja} ({ilosc}). Projekt: {projekt}. Od: {st.session_state.uzytkownik}"
-                        st.link_button("📲 Wyślij WhatsApp do Admina", f"https://wa.me/{nr}?text={urllib.parse.quote(t)}", use_container_width=True)
+                        t = f"Nowe zamówienie: {pozycja}. Od: {st.session_state.uzytkownik}"
+                        st.link_button("📲 Wyślij WhatsApp", f"https://wa.me/{nr}?text={urllib.parse.quote(t)}", use_container_width=True)
                     else:
-                        time.sleep(1.5)
-                        st.rerun()
+                        time.sleep(1.5); st.rerun()
                 else:
-                    st.error("Pozycja i Ilość są wymagane!")
+                    st.error("Wypełnij wymagane pola!")
 
     # =========================================================================
     # ZAKŁADKA: PANEL REALIZACJI (ADMIN)
@@ -160,29 +156,17 @@ else:
         tels = {p['login']: p.get('telefon', '') for p in prac_res.data}
         
         res = supabase.table("zamowienia").select("*").neq("status", "Zrealizowane").order("id", desc=True).execute()
-        if not res.data: st.success("Brak aktywnych zamówień!")
+        if not res.data: st.success("Wszystko zrealizowane!")
         else:
             for r in res.data:
                 with st.container(border=True):
                     st.subheader(f"{r['pozycja']} ({r['ilosc']})")
-                    
-                    # --- OBSŁUGA WYŚWIETLANIA ZAŁĄCZNIKA ---
                     if r.get('zdjecie_url'):
                         if r['zdjecie_url'].lower().endswith(".pdf"):
-                            st.link_button("📄 Otwórz Załącznik PDF", r['zdjecie_url'])
+                            st.link_button("📄 Otwórz PDF", r['zdjecie_url'])
                         else:
-                            with st.expander("🖼️ Zobacz zdjęcie"): 
-                                st.image(r['zdjecie_url'], use_container_width=True)
+                            with st.expander("🖼️ Zobacz zdjęcie"): st.image(r['zdjecie_url'], use_container_width=True)
                     
-                    with st.expander("✏️ Edytuj szczegóły"):
-                        e_col1, e_col2 = st.columns(2)
-                        up_poz = e_col1.text_input("Pozycja", value=r['pozycja'], key=f"ep_{r['id']}")
-                        up_ilo = e_col2.text_input("Ilość", value=r['ilosc'], key=f"ei_{r['id']}")
-                        if st.button("Zapisz zmiany", key=f"eb_{r['id']}"):
-                            supabase.table("zamowienia").update({"pozycja": up_poz, "ilosc": up_ilo}).eq("id", r['id']).execute()
-                            st.rerun()
-
-                    st.divider()
                     col1, col2 = st.columns([1, 2])
                     st_list = ["Oczekujące", "Zamówione", "Niedostępne", "Zamiennik", "Zrealizowane"]
                     n_st = col1.selectbox("Status", st_list, index=st_list.index(r['status']), key=f"st_{r['id']}")
@@ -198,84 +182,81 @@ else:
                     tel = tels.get(r['zgloszone_przez'])
                     if tel:
                         nr_c = "".join(c for c in tel if c.isdigit())
-                        msg = f"Status zamówienia {r['pozycja']}: {n_st}. {n_uw}"
-                        c_w.link_button("📲 Wyślij WhatsApp", f"https://wa.me/{nr_c}?text={urllib.parse.quote(msg)}", use_container_width=True)
+                        msg = f"Status {r['pozycja']}: {n_st}. {n_uw}"
+                        c_w.link_button("📲 Wyślij WA", f"https://wa.me/{nr_c}?text={urllib.parse.quote(msg)}", use_container_width=True)
 
     # =========================================================================
-    # ZAKŁADKA: STATYSTYKI
+    # ZAKŁADKA: ZARZĄDZANIE KONTAMI (Z WYŚWIETLANIEM HASŁA)
+    # =========================================================================
+    elif menu == "👥 Zarządzanie Kontami":
+        st.title("👥 Zarządzanie pracownikami")
+        
+        with st.container(border=True):
+            st.subheader("➕ Dodaj nowe konto")
+            c1, c2, c3, c4 = st.columns(4)
+            n_log = c1.text_input("Login")
+            n_has = c2.text_input("Hasło") # Tu wpisujemy hasło dla nowego pracownika
+            n_rol = c3.selectbox("Rola", ["użytkownik", "admin"])
+            n_tel = c4.text_input("Telefon (np. 48123456789)")
+            if st.button("Utwórz konto", type="primary"):
+                if n_log and n_has:
+                    # Zapisujemy do bazy pod Twoją nazwą kolumny 'hasło'
+                    supabase.table("pracownicy").insert({"login": n_log, "hasło": n_has, "rola": n_rol, "telefon": n_tel}).execute()
+                    st.success(f"Dodano: {n_log}"); time.sleep(1); st.rerun()
+                else:
+                    st.error("Login i Hasło są obowiązkowe!")
+
+        st.divider()
+        st.subheader("📋 Lista pracowników")
+        res_p = supabase.table("pracownicy").select("*").order("login").execute()
+        
+        if not res_p.data:
+            st.info("Baza pracowników jest pusta.")
+        else:
+            for p in res_p.data:
+                if not p.get('login'): continue
+                
+                with st.container(border=True):
+                    col_i, col_b = st.columns([5, 1])
+                    
+                    # POBIERANIE HASŁA (próbuje 'hasło' lub 'haslo')
+                    haslo_widoczne = p.get('hasło') or p.get('haslo') or "???"
+                    rola_p = p.get('rola') or "użytkownik"
+                    
+                    # WYŚWIETLANIE (Teraz z hasłem!)
+                    col_i.markdown(f"👤 **{p['login']}** | 🔑 Hasło: `{haslo_widoczne}` | 🛠️ Rola: `{rola_p}` | 📞 Tel: `{p.get('telefon','')}`")
+                    
+                    if p['login'].lower() != "emil":
+                        if col_b.button("🗑️ Usuń", key=f"dp_{p['login']}"):
+                            supabase.table("pracownicy").delete().eq("login", p['login']).execute(); st.rerun()
+
+    # =========================================================================
+    # RESZTA FUNKCJI (STATYSTYKI, HISTORIA)
     # =========================================================================
     elif menu == "📊 Statystyki i Raporty":
         st.title("📊 Statystyki")
         res = supabase.table("zamowienia").select("*").execute()
         if res.data:
             df = pd.DataFrame(res.data)
-            if not df.empty:
-                col_a, col_b = st.columns(2)
-                col_a.subheader("Zamówienia wg projektu")
-                col_a.bar_chart(df['projekt'].value_counts())
-                col_b.subheader("Aktywność pracowników")
-                col_b.bar_chart(df['zgloszone_przez'].value_counts())
+            st.bar_chart(df['projekt'].value_counts())
         else:
             st.info("Brak danych.")
 
-    # =========================================================================
-    # ZAKŁADKA: ZARZĄDZANIE KONTAMI
-    # =========================================================================
-    elif menu == "👥 Zarządzanie Kontami":
-        st.title("👥 Zarządzanie pracownikami")
-        with st.container(border=True):
-            st.subheader("➕ Dodaj nowe konto")
-            c1, c2, c3, c4 = st.columns(4)
-            n_log = c1.text_input("Login")
-            n_has = c2.text_input("Hasło")
-            n_rol = c3.selectbox("Rola", ["użytkownik", "admin"])
-            n_tel = c4.text_input("Telefon (np. 48123456789)")
-            if st.button("Utwórz konto"):
-                supabase.table("pracownicy").insert({"login": n_log, "haslo": n_has, "rola": n_rol, "telefon": n_tel}).execute()
-                st.success("Dodano!"); time.sleep(1); st.rerun()
-
-        res_p = supabase.table("pracownicy").select("*").order("login").execute()
-        for p in res_p.data:
-            if not p.get('login'): continue
-            with st.container(border=True):
-                col_i, col_b = st.columns([5, 1])
-                col_i.markdown(f"👤 **{p['login']}** | Rola: `{p.get('rola')}` | Tel: `{p.get('telefon','')}`")
-                if p['login'].lower() != "emil":
-                    if col_b.button("🗑️ Usuń", key=f"dp_{p['login']}"):
-                        supabase.table("pracownicy").delete().eq("login", p['login']).execute(); st.rerun()
-
-    # =========================================================================
-    # ZAKŁADKA: MOJE AKTYWNE
-    # =========================================================================
     elif menu == "📋 Moje Aktywne":
-        st.title("📋 Twoje zamówienia w realizacji")
-        res = supabase.table("zamowienia").select("*").eq("zgloszone_przez", st.session_state.uzytkownik).neq("status", "Zrealizowane").order("id", desc=True).execute()
+        st.title("📋 Twoje zamówienia")
+        res = supabase.table("zamowienia").select("*").eq("zgloszone_przez", st.session_state.uzytkownik).neq("status", "Zrealizowane").execute()
         if not res.data: st.info("Brak aktywnych zamówień.")
         for r in res.data:
             with st.container(border=True):
-                st.subheader(f"{r['pozycja']} ({r['ilosc']})")
+                st.subheader(f"{r['pozycja']}")
                 render_status_alert(r['status'])
-                if r.get('uwagi_admina'): st.info(f"Odpis Admina: {r['uwagi_admina']}")
 
-    # =========================================================================
-    # ZAKŁADKA: HISTORIA I SZUKAJ
-    # =========================================================================
     elif menu == "🔎 Historia i Szukaj":
-        st.title("🔎 Baza wszystkich zamówień")
-        res_f = supabase.table("zamowienia").select("*").order("id", desc=True).execute()
-        if res_f.data:
-            df_h = pd.DataFrame(res_f.data)
-            st.dataframe(df_h, use_container_width=True)
-            csv = '\ufeff'.encode('utf8') + df_h.to_csv(index=False, sep=';').encode('utf-8')
-            st.download_button("📥 Pobierz historię CSV", csv, "historia.csv", "text/csv")
+        st.title("🔎 Historia")
+        res = supabase.table("zamowienia").select("*").order("id", desc=True).execute()
+        if res.data:
+            st.dataframe(pd.DataFrame(res.data), use_container_width=True)
 
-    # =========================================================================
-    # ZAKŁADKA: INSTRUKCJA
-    # =========================================================================
     elif menu == "📖 Instrukcja":
-        st.title("📖 Instrukcja Obsługi")
-        st.markdown("""
-        1. **Wybierz plik**: Możesz zrobić zdjęcie aparatem LUB wybrać plik z pamięci telefonu/komputera.
-        2. **Formaty**: System akceptuje zdjęcia (JPG, PNG) oraz dokumenty PDF.
-        3. **Admin**: W panelu admina PDFy otwierają się w nowej karcie pod przyciskiem.
-        """)
+        st.title("📖 Instrukcja")
+        st.write("W zakładce Zarządzanie Kontami widzisz hasła wszystkich pracowników.")
