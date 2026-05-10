@@ -145,14 +145,14 @@ else:
                     st.error("Wypełnij wymagane pola!")
 
     # =========================================================================
-    # ZAKŁADKA: PANEL REALIZACJI (ADMIN) -> ZWARTSZA WERSJA
+    # ZAKŁADKA: PANEL REALIZACJI (ADMIN)
     # =========================================================================
     elif menu == "⚙️ Panel Realizacji (Admin)":
         st.title("⚙️ Zarządzanie realizacją")
         
         prac_res = supabase.table("pracownicy").select("login, telefon").execute()
         pracownicy_dict = {p['login']: p.get('telefon', '') for p in prac_res.data}
-        
+
         res = supabase.table("zamowienia").select("*").neq("status", "Zrealizowane").order("id", desc=True).execute()
         
         if not res.data:
@@ -160,69 +160,72 @@ else:
         else:
             for r in res.data:
                 with st.container(border=True):
-                    # 1. Zwarty Nagłówek i Informacje
+                    # 1. LINIA: Nagłówek i najważniejsze dane
                     st.markdown(f"### 📦 {r['pozycja'].upper()} `x {r['ilosc']}`")
-                    st.markdown(f"👤 **Zgłosił(a):** `{r['zgloszone_przez']}` ({r['data_zgloszenia']}) | 🏗️ **Projekt:** `{r.get('projekt') or '-'}` | 🚨 **Pilność:** `{r.get('pilnosc') or 'Normalna'}`")
-                    st.caption(f"📏 Wymiary: {r.get('wymiary') or '-'} | 🧱 Materiał: {r.get('material') or '-'} | 📌 Aktualny status: **{r['status']}**")
+                    st.markdown(f"👤 `{r['zgloszone_przez']}` | 🏗️ `{r.get('projekt') or '-'}` | 🚨 `{r.get('pilnosc') or 'Normalna'}` | 📏 `{r.get('wymiary') or '-'}`")
                     
-                    # 2. Narzędzia Statusu (w jednej linii)
+                    # 2. LINIA: Edycja statusu i notatki
                     c_st, c_uw, c_zap = st.columns([2, 4, 1])
                     st_list = ["Oczekujące", "Zamówione", "Niedostępne", "Zamiennik", "Zrealizowane"]
                     n_st = c_st.selectbox("Status", st_list, index=st_list.index(r['status']), key=f"st_sel_{r['id']}", label_visibility="collapsed")
-                    n_uw = c_uw.text_input("Notatka", value=r.get('uwagi_admina') or "", key=f"uw_inp_{r['id']}", placeholder="Dodaj krótką notatkę...", label_visibility="collapsed")
+                    n_uw = c_uw.text_input("Notatka", value=r.get('uwagi_admina') or "", key=f"uw_inp_{r['id']}", placeholder="Dodaj notatkę...", label_visibility="collapsed")
                     
                     if c_zap.button("💾 Zapisz", key=f"save_{r['id']}", type="primary", use_container_width=True):
                         supabase.table("zamowienia").update({"status": n_st, "uwagi_admina": n_uw}).eq("id", r['id']).execute()
-                        st.toast("Status zaktualizowany!")
+                        st.toast("Zapisano!")
                         time.sleep(0.5); st.rerun()
 
-                    # 3. Przyciski Akcji (WhatsApp, Edycja, Zdjęcie) - na dole, w małych bloczkach
+                    # 3. LINIA: WhatsApp i Narzędzia
                     b1, b2, b3, b4 = st.columns([2, 2, 1, 1])
                     
                     msg = f"Aktualizacja: {r['pozycja']} | Status: {n_st} | Uwagi: {n_uw}"
                     tel_zgl = pracownicy_dict.get(r['zgloszone_przez'], '')
                     
-                    # -> Główny guzik dla Zgłaszającego
+                    # PRZYCISK: Zgłaszający
                     if tel_zgl:
                         nr_zgl = "".join(filter(str.isdigit, tel_zgl))
-                        b1.link_button(f"📲 WA Zgłaszający ({r['zgloszone_przez']})", f"https://wa.me/{nr_zgl}?text={urllib.parse.quote(msg)}", use_container_width=True)
+                        b1.link_button(f"📲 WA: {r['zgloszone_przez']}", f"https://wa.me/{nr_zgl}?text={urllib.parse.quote(msg)}", use_container_width=True)
                     else:
-                        b1.button(f"❌ Brak Tel ({r['zgloszone_przez']})", disabled=True, key=f"b_tel_{r['id']}", use_container_width=True)
+                        b1.button(f"⚠️ {r['zgloszone_przez']} (Brak Tel)", disabled=True, use_container_width=True)
                     
-                    # -> Opcjonalne dodatkowe powiadomienia (Wyskakujące)
-                    with b2.popover("➕ WA Dodatkowo"):
-                        zaint = st.multiselect("Wybierz kogo powiadomić:", [k for k in pracownicy_dict.keys() if k != r['zgloszone_przez']], key=f"multi_{r['id']}")
+                    # PRZYCISK: Dodatkowi odbiorcy (Tylko ci z bazy)
+                    with b2.popover("➕ WA Inni"):
+                        st.write("Wybierz osoby do powiadomienia:")
+                        lista_opcji = [k for k in pracownicy_dict.keys() if k != r['zgloszone_przez']]
+                        zaint = st.multiselect("Dodaj osoby:", lista_opcji, key=f"multi_{r['id']}")
                         for os in zaint:
-                            tel_os = pracownicy_dict.get(os, '')
-                            if tel_os:
-                                nr_os = "".join(filter(str.isdigit, tel_os))
-                                st.link_button(f"Wyślij do: {os}", f"https://wa.me/{nr_os}?text={urllib.parse.quote(msg)}", use_container_width=True)
+                            t_os = pracownicy_dict.get(os, '')
+                            if t_os:
+                                n_os = "".join(filter(str.isdigit, t_os))
+                                st.link_button(f"Wyślij do: {os}", f"https://wa.me/{n_os}?text={urllib.parse.quote(msg)}", use_container_width=True)
+                            else:
+                                st.warning(f"Brak tel dla: {os}")
 
-                    # -> Edycja (Wyskakujące okienko)
-                    with b3.popover("⚙️ Edycja"):
+                    # PRZYCISK: Pełna edycja i Usuwanie
+                    with b3.popover("⚙️ Akcje"):
                         up_poz = st.text_input("Pozycja", value=r['pozycja'], key=f"ep_{r['id']}")
                         up_ilo = st.text_input("Ilość", value=r['ilosc'], key=f"ei_{r['id']}")
                         up_wym = st.text_input("Wymiary", value=r.get('wymiary',''), key=f"ew_{r['id']}")
                         up_mat = st.text_input("Materiał", value=r.get('material',''), key=f"em_{r['id']}")
                         up_pro = st.text_input("Projekt", value=r.get('projekt',''), key=f"ej_{r['id']}")
                         up_pil = st.selectbox("Pilność", ["Normalna", "PILNE ⚡", "KRYTYCZNE 🛑"], index=["Normalna", "PILNE ⚡", "KRYTYCZNE 🛑"].index(r.get('pilnosc','Normalna')), key=f"epi_{r['id']}")
-                        if st.button("Zapisz", key=f"btn_edit_{r['id']}", type="primary", use_container_width=True):
+                        if st.button("Zapisz zmiany", key=f"btn_edit_{r['id']}", type="primary", use_container_width=True):
                             supabase.table("zamowienia").update({"pozycja": up_poz, "ilosc": up_ilo, "wymiary": up_wym, "material": up_mat, "projekt": up_pro, "pilnosc": up_pil}).eq("id", r['id']).execute()
                             st.rerun()
                         st.divider()
-                        if st.button("🗑️ Usuń", key=f"del_{r['id']}", use_container_width=True):
+                        if st.button("🗑️ Usuń trwale", key=f"del_{r['id']}", use_container_width=True):
                             supabase.table("zamowienia").delete().eq("id", r['id']).execute()
                             st.rerun()
 
-                    # -> Podgląd Załącznika
+                    # PRZYCISK: Załącznik
                     if r.get('zdjecie_url'):
                         if r['zdjecie_url'].lower().endswith(".pdf"):
                             b4.link_button("📄 PDF", r['zdjecie_url'], use_container_width=True)
                         else:
-                            with b4.popover("🖼️ Foto"):
+                            with b4.popover("🖼️ FOTO"):
                                 st.image(r['zdjecie_url'], use_container_width=True)
                     else:
-                        b4.button("Brak 🖼️", disabled=True, key=f"no_pic_{r['id']}", use_container_width=True)
+                        b4.button("❌ 🖼️", disabled=True, use_container_width=True)
 
     # =========================================================================
     # ZAKŁADKA: ZARZĄDZANIE KONTAMI
@@ -283,4 +286,4 @@ else:
 
     elif menu == "📖 Instrukcja":
         st.title("📖 Instrukcja")
-        st.write("Panel admina pozwala na edycję wszystkich danych zamówienia i wysyłkę powiadomień do wielu osób.")
+        st.write("Wszystkie operacje w Panelu Realizacji odbywają się w sposób zwarty. Użyj popoverów do edycji i powiadomień.")
