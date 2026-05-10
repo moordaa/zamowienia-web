@@ -1,7 +1,5 @@
 streamlit
 supabase
 pandas
-fpdf
-xlsxwriter
 openpyxl
 fpdf2
