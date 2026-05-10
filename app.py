@@ -56,20 +56,17 @@ if not st.session_state.zalogowany:
                             st.session_state.uzytkownik = l
                             st.session_state.rola = user_data.get('rola') or "użytkownik"
                             st.rerun()
-                        else:
-                            st.error("Błędne hasło!")
-                    else:
-                        st.error("Użytkownik nie istnieje!")
+                        else: st.error("Błędne hasło!")
+                    else: st.error("Użytkownik nie istnieje!")
 else:
-    # --- MENU BOCZNE ---
+    # --- MENU BOCZNE (ZAKTUALIZOWANE NAZWY) ---
     with st.sidebar:
         st.success(f"Zalogowano: **{st.session_state.uzytkownik}**")
         st.divider()
-        opcje = ["📝 Nowe Zamówienie", "📋 Moje Aktywne", "🔎 Historia i Szukaj", "📖 Instrukcja"]
+        opcje = ["📝 Nowe Zamówienie", "📋 Moje Aktywne", "🔎 Historia i Raporty", "📊 Statystyki", "📖 Instrukcja"]
         if st.session_state.rola == "admin":
             opcje.insert(1, "⚙️ Panel Realizacji (Admin)")
-            opcje.insert(2, "📊 Statystyki i Raporty")
-            opcje.insert(3, "👥 Zarządzanie Kontami")
+            opcje.insert(4, "👥 Zarządzanie Kontami")
         menu = st.radio("MENU", opcje)
         st.divider()
         if st.button("🔄 Odśwież dane", use_container_width=True): st.rerun()
@@ -87,7 +84,7 @@ else:
         elif status_text == "Oczekujące": st.warning(msg)
         else: st.info(msg)
 
-    # --- FUNKCJA GENEROWANIA PDF (PIONOWA A4) ---
+    # --- FUNKCJA PDF ---
     def make_real_pdf(df, title_text):
         pdf = FPDF(orientation="P", unit="mm", format="A4")
         pdf.add_page()
@@ -132,111 +129,44 @@ else:
     # =========================================================================
     if menu == "📝 Nowe Zamówienie":
         st.title("📝 Nowe zamówienie")
-        admins_res = supabase.table("pracownicy").select("login, telefon").eq("rola", "admin").execute()
-        admin_phones = {a['login']: a['telefon'] for a in admins_res.data if a.get('telefon')}
         with st.container(border=True):
             pozycja = st.text_input("🔧 Pozycja (np. Śruba zamkowa)")
-            col1, col2 = st.columns(2)
-            wymiary = col1.text_input("📏 Wymiary")
-            material = col2.text_input("🧱 Materiał")
-            col3, col4 = st.columns(2)
-            ilosc = col3.text_input("🔢 Ilość")
-            pilnosc = col4.selectbox("🚨 Pilność", ["Normalna", "PILNE ⚡", "KRYTYCZNE 🛑"])
+            c1, c2 = st.columns(2)
+            wymiary = c1.text_input("📏 Wymiary")
+            material = c2.text_input("🧱 Materiał")
+            c3, c4 = st.columns(2)
+            ilosc = c3.text_input("🔢 Ilość")
+            pilnosc = c4.selectbox("🚨 Pilność", ["Normalna", "PILNE ⚡", "KRYTYCZNE 🛑"])
             projekt = st.text_input("🏗️ Projekt / Cel")
             st.divider()
-            zal_col1, zal_col2 = st.columns(2)
-            zdjecie_cam = None
-            if zal_col1.toggle("📷 Użyj aparatu"): zdjecie_cam = st.camera_input("Zrób zdjęcie")
-            plik_upload = zal_col2.file_uploader("📁 Wybierz plik", type=["jpg", "jpeg", "png", "pdf"])
-            st.divider()
-            opcje_wa = ["-- Nie wysyłaj --"] + list(admin_phones.keys())
-            powiadom = st.selectbox("📲 Powiadom admina (WhatsApp):", opcje_wa)
+            plik_upload = st.file_uploader("📁 Wybierz plik", type=["jpg", "jpeg", "png", "pdf"])
             if st.button("WYŚLIJ ZAMÓWIENIE", type="primary", use_container_width=True):
                 if pozycja and ilosc:
                     url_zdj = ""
-                    final_file = None
-                    if zdjecie_cam: final_file = zdjecie_cam.getvalue()
-                    elif plik_upload: final_file = plik_upload.getvalue()
-                    if final_file:
-                        nazwa = f"{int(time.time())}_{st.session_state.uzytkownik}.jpg"
-                        supabase.storage.from_("zdjecia_zamowien").upload(nazwa, final_file, {"content-type": "image/jpeg"})
+                    if plik_upload:
+                        nazwa = f"{int(time.time())}.jpg"
+                        supabase.storage.from_("zdjecia_zamowien").upload(nazwa, plik_upload.getvalue())
                         url_zdj = supabase.storage.from_("zdjecia_zamowien").get_public_url(nazwa)
                     supabase.table("zamowienia").insert({"pozycja": pozycja, "wymiary": wymiary, "material": material, "ilosc": ilosc, "projekt": projekt, "pilnosc": pilnosc, "status": "Oczekujące", "zgloszone_przez": st.session_state.uzytkownik, "data_zgloszenia": str(datetime.today().date()), "zdjecie_url": url_zdj}).execute()
                     st.success("Wysłano!"); time.sleep(1); st.rerun()
 
     elif menu == "⚙️ Panel Realizacji (Admin)":
         st.title("⚙️ Panel Realizacji")
-        prac_res = supabase.table("pracownicy").select("login, telefon").execute()
-        pracownicy_dict = {p['login']: p.get('telefon', '') for p in prac_res.data}
         res = supabase.table("zamowienia").select("*").neq("status", "Zrealizowane").order("id", desc=True).execute()
-        if not res.data: st.success("Brak zamówień do realizacji!")
-        else:
-            for r in res.data:
-                with st.container(border=True):
-                    st.markdown(f"### 📦 {r['pozycja'].upper()} `x {r['ilosc']}`")
-                    st.markdown(f"👤 `{r['zgloszone_przez']}` | 🏗️ `{r.get('projekt') or '-'}` | 🚨 `{r.get('pilnosc') or 'Normalna'}`")
-                    c_st, c_uw, c_zap = st.columns([2, 4, 1])
-                    st_list = ["Oczekujące", "Zamówione", "Niedostępne", "Zamiennik", "Zrealizowane"]
-                    n_st = c_st.selectbox("Status", st_list, index=st_list.index(r['status']), key=f"st_{r['id']}", label_visibility="collapsed")
-                    n_uw = c_uw.text_input("Notatka", value=r.get('uwagi_admina') or "", key=f"uw_{r['id']}", label_visibility="collapsed")
-                    if c_zap.button("💾", key=f"sv_{r['id']}", use_container_width=True):
-                        u_data = {"status": n_st, "uwagi_admina": n_uw}
-                        if n_st == "Zrealizowane": u_data["data_realizacji"] = str(datetime.today().date())
-                        supabase.table("zamowienia").update(u_data).eq("id", r['id']).execute()
-                        st.rerun()
-                    b1, b2, b3, b4 = st.columns([2, 2, 1, 1])
-                    msg = f"Aktualizacja: {r['pozycja']} | Status: {n_st} | Uwagi: {n_uw}"
-                    tel_zgl = pracownicy_dict.get(r['zgloszone_przez'], '')
-                    if tel_zgl:
-                        nr_zgl = "".join(filter(str.isdigit, tel_zgl))
-                        b1.link_button(f"📲 WA: {r['zgloszone_przez']}", f"https://wa.me/{nr_zgl}?text={urllib.parse.quote(msg)}", use_container_width=True)
-                    else: b1.button("Brak Tel", disabled=True, use_container_width=True)
-                    with b2.popover("➕ Inni"):
-                        lista_opcji = [k for k in pracownicy_dict.keys() if k != r['zgloszone_przez']]
-                        zaint = st.multiselect("Powiadom:", lista_opcji, key=f"m_{r['id']}")
-                        for os in zaint:
-                            t_os = pracownicy_dict.get(os, '')
-                            if t_os:
-                                n_os = "".join(filter(str.isdigit, t_os))
-                                st.link_button(f"Wyślij do: {os}", f"https://wa.me/{n_os}?text={urllib.parse.quote(msg)}", use_container_width=True)
-                    with b3.popover("⚙️"):
-                        up_poz = st.text_input("Pozycja", value=r['pozycja'], key=f"e1_{r['id']}")
-                        if st.button("Zapisz zmiany", key=f"eb_{r['id']}"):
-                            supabase.table("zamowienia").update({"pozycja": up_poz}).eq("id", r['id']).execute(); st.rerun()
-                        if st.button("🗑️ Usuń", key=f"db_{r['id']}"):
-                            supabase.table("zamowienia").delete().eq("id", r['id']).execute(); st.rerun()
-                    if r.get('zdjecie_url'):
-                        with b4.popover("🖼️"): st.image(r['zdjecie_url'])
-                    else: b4.button("❌", disabled=True)
-
-    elif menu == "👥 Zarządzanie Kontami":
-        st.title("👥 Zarządzanie pracownikami")
-        with st.container(border=True):
-            st.subheader("➕ Nowe konto")
-            c1, c2, c3, c4 = st.columns(4)
-            n_log = c1.text_input("Login")
-            n_has = c2.text_input("Hasło") 
-            n_rol = c3.selectbox("Rola", ["użytkownik", "admin"])
-            n_tel = c4.text_input("Telefon")
-            if st.button("Utwórz"):
-                supabase.table("pracownicy").insert({"login": n_log, "haslo": n_has, "rola": n_rol, "telefon": n_tel}).execute(); st.rerun()
-        res_p = supabase.table("pracownicy").select("*").order("login").execute()
-        for p in res_p.data:
+        for r in res.data:
             with st.container(border=True):
-                col_i, col_e, col_d = st.columns([4, 1, 1])
-                h_wid = p.get('haslo','') if st.session_state.uzytkownik.lower() == "emil" or p['login'].lower() != "emil" else "••••"
-                col_i.markdown(f"👤 **{p['login']}** | 🔑 `{h_wid}` | 📞 `{p.get('telefon','')}`")
-                with col_e.popover("✏️"):
-                    e_has = st.text_input("Nowe hasło", value=p.get('haslo',''), key=f"h_{p['login']}")
-                    e_tel = st.text_input("Nowy telefon", value=p.get('telefon',''), key=f"t_{p['login']}")
-                    if st.button("Zapisz", key=f"s_{p['login']}"):
-                        supabase.table("pracownicy").update({"haslo": e_has, "telefon": e_tel}).eq("login", p['login']).execute(); st.rerun()
-                if p['login'].lower() != "emil":
-                    if col_d.button("🗑️", key=f"d_{p['login']}"):
-                        supabase.table("pracownicy").delete().eq("login", p['login']).execute(); st.rerun()
+                st.markdown(f"### 📦 {r['pozycja'].upper()} x {r['ilosc']}")
+                c_st, c_uw, c_zap = st.columns([2, 4, 1])
+                st_list = ["Oczekujące", "Zamówione", "Niedostępne", "Zamiennik", "Zrealizowane"]
+                n_st = c_st.selectbox("Status", st_list, index=st_list.index(r['status']), key=f"s_{r['id']}")
+                n_uw = c_uw.text_input("Notatka", value=r.get('uwagi_admina') or "", key=f"u_{r['id']}")
+                if c_zap.button("💾", key=f"b_{r['id']}"):
+                    u_data = {"status": n_st, "uwagi_admina": n_uw}
+                    if n_st == "Zrealizowane": u_data["data_realizacji"] = str(datetime.today().date())
+                    supabase.table("zamowienia").update(u_data).eq("id", r['id']).execute(); st.rerun()
 
-    elif menu == "🔎 Historia i Szukaj":
-        st.title("🔎 Historia")
+    elif menu == "🔎 Historia i Raporty":
+        st.title("🔎 Historia i Raporty")
         res = supabase.table("zamowienia").select("*").order("id", desc=True).execute()
         if res.data:
             df_h = pd.DataFrame(res.data)
@@ -256,52 +186,69 @@ else:
             pdf_bytes = make_real_pdf(df_export, f"HISTORIA ZAMOWIEN")
             c2.download_button("📄 Pobierz PDF (A4 Pion)", pdf_bytes, "historia.pdf", use_container_width=True)
 
-    elif menu == "📊 Statystyki i Raporty":
-        st.title("📊 Statystyki")
+    # =========================================================================
+    # ZAKŁADKA: STATYSTYKI (ROZBUDOWANA)
+    # =========================================================================
+    elif menu == "📊 Statystyki":
+        st.title("📊 Statystyki i Analityka")
         res = supabase.table("zamowienia").select("*").execute()
+        
         if res.data:
             df = pd.DataFrame(res.data)
-            st.bar_chart(df['projekt'].value_counts())
+            
+            # WSKAŹNIKI OGÓLNE (METRYKI)
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Wszystkich zamówień", len(df))
+            m2.metric("Oczekujące", len(df[df['status'] == 'Oczekujące']))
+            m3.metric("Zrealizowane", len(df[df['status'] == 'Zrealizowane']))
+            
+            # Obliczanie średniego czasu realizacji
+            df['data_zgloszenia'] = pd.to_datetime(df['data_zgloszenia'])
+            df['data_realizacji'] = pd.to_datetime(df['data_realizacji'])
+            df_zrealizowane = df[df['data_realizacji'].notna()]
+            if not df_zrealizowane.empty:
+                sredni_czas = (df_zrealizowane['data_realizacji'] - df_zrealizowane['data_zgloszenia']).dt.days.mean()
+                m4.metric("Średni czas realizacji", f"{sredni_czas:.1f} dni")
+            else:
+                m4.metric("Średni czas realizacji", "---")
+
+            st.divider()
+
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                st.subheader("👤 Zamówienia wg Osób")
+                st.bar_chart(df['zgloszone_przez'].value_counts())
+                
+                st.subheader("🚨 Rozkład Pilności")
+                st.bar_chart(df['pilnosc'].value_counts())
+
+            with col_b:
+                st.subheader("🏗️ Zamówienia wg Projektu")
+                st.bar_chart(df['projekt'].value_counts())
+                
+                st.subheader("🔝 Top 5 Produktów")
+                top_produkty = df['pozycja'].value_counts().head(5)
+                st.table(top_produkty)
+
+            st.divider()
+            with st.expander("💡 Podpowiedź: Co jeszcze może się przydać?"):
+                st.markdown("""
+                * **Koszty:** Jeśli dodamy kolumnę 'Cena', będziemy mogli generować wykresy wydatków na konkretne budowy.
+                * **Dostawcy:** Jeśli będziesz wpisywać, gdzie kupiłeś towar, statystyki pokażą, u którego dostawcy zostawiasz najwięcej pieniędzy.
+                * **Czas pracy admina:** Możemy mierzyć, jak szybko admin reaguje na zamówienie (zmienia status z Oczekujące na Zamówione).
+                """)
+        else:
+            st.info("Brak danych do wygenerowania statystyk.")
 
     elif menu == "📋 Moje Aktywne":
         st.title("📋 Twoje zamówienia")
         res = supabase.table("zamowienia").select("*").eq("zgloszone_przez", st.session_state.uzytkownik).neq("status", "Zrealizowane").execute()
         for r in res.data:
             with st.container(border=True):
-                st.markdown(f"### 📦 {r['pozycja'].upper()} `x {r['ilosc']}`")
+                st.markdown(f"### 📦 {r['pozycja'].upper()} x {r['ilosc']}")
                 render_status_alert(r['status'])
 
-    # =========================================================================
-    # ZAKŁADKA: INSTRUKCJA (ZWARTE I CZYTELNE WYJAŚNIENIE)
-    # =========================================================================
     elif menu == "📖 Instrukcja":
-        st.title("📖 Instrukcja Obsługi Systemu")
-        
-        with st.container(border=True):
-            st.markdown("### 📝 Składanie Zamówień")
-            st.write("1. Wejdź w zakładkę **Nowe Zamówienie**.")
-            st.write("2. Wypełnij nazwę pozycji, ilość oraz dane techniczne (wymiary, materiał).")
-            st.write("3. Możesz zrobić zdjęcie telefonem (📷) lub wgrać plik PDF/Zdjęcie z dysku.")
-            st.write("4. Wybierz Admina, którego chcesz powiadomić i kliknij **Wyślij**.")
-            st.info("💡 Po wysłaniu pojawi się przycisk WhatsApp – kliknij go, aby od razu przesłać treść zamówienia do admina.")
-
-        with st.container(border=True):
-            st.markdown("### ⚙️ Zarządzanie Realizacją (Admin)")
-            st.write("Wszystkie aktywne zamówienia są widoczne w **Panelu Realizacji**.")
-            st.markdown("- **Zmiana statusu:** Wybierz nowy status z listy i wpisz notatkę, a następnie kliknij dyskietkę (**💾**).")
-            st.markdown("- **Powiadomienia:** Przycisk **📲 WA** wysyła aktualizację statusu bezpośrednio do osoby, która zamówiła towar.")
-            st.markdown("- **Dodatkowi Odbiorcy:** Użyj **➕ Inni**, aby wysłać tę samą wiadomość do kilku osób naraz (np. na budowę).")
-            st.markdown("- **Narzędzia:** Ikona zębatki (**⚙️**) pozwala na edycję szczegółów lub usunięcie zamówienia.")
-
-        with st.container(border=True):
-            st.markdown("### 🔎 Historia i Raporty")
-            st.write("W sekcji **Historia i Szukaj** możesz przeglądać wszystkie archiwalne zamówienia.")
-            st.markdown("- **Eksport danych:** Dostępne są dwa profesjonalne przyciski eksportu.")
-            st.markdown("- **Excel:** Pełna tabela z kolorami, gotowa do dalszej obróbki.")
-            st.markdown("- **PDF:** Przejrzysty dokument sformatowany pod wydruk **A4 w pionie**.")
-
-        with st.container(border=True):
-            st.markdown("### 👥 Bezpieczeństwo i Konta")
-            st.write("- Hasło Szefa (Emila) jest widoczne **tylko dla niego**.")
-            st.write("- Inni administratorzy widzą hasła użytkowników, aby móc im pomóc w logowaniu, ale nie widzą haseł innych adminów.")
-            st.warning("⚠️ Pamiętaj, aby przy dodawaniu konta podać numer telefonu z kodem kraju (np. 48123456789), aby WhatsApp działał poprawnie.")
+        st.title("📖 Instrukcja")
+        st.write("W zakładce Statystyki sprawdzisz efektywność i najczęstsze wybory.")
