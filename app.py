@@ -145,7 +145,7 @@ else:
                     st.error("Wypełnij wymagane pola!")
 
     # =========================================================================
-    # ZAKŁADKA: PANEL REALIZACJI (ADMIN)
+    # ZAKŁADKA: PANEL REALIZACJI (ADMIN) -> ZWARTSZA WERSJA
     # =========================================================================
     elif menu == "⚙️ Panel Realizacji (Admin)":
         st.title("⚙️ Zarządzanie realizacją")
@@ -160,85 +160,69 @@ else:
         else:
             for r in res.data:
                 with st.container(border=True):
-                    # Bezpieczne wyświetlanie informacji
-                    st.info(f"### 📦 {r['pozycja'].upper()}")
-                    st.write(f"**Zgłosił(a):** {r['zgloszone_przez']} | **Data:** {r['data_zgloszenia']}")
+                    # 1. Zwarty Nagłówek i Informacje
+                    st.markdown(f"### 📦 {r['pozycja'].upper()} `x {r['ilosc']}`")
+                    st.markdown(f"👤 **Zgłosił(a):** `{r['zgloszone_przez']}` ({r['data_zgloszenia']}) | 🏗️ **Projekt:** `{r.get('projekt') or '-'}` | 🚨 **Pilność:** `{r.get('pilnosc') or 'Normalna'}`")
+                    st.caption(f"📏 Wymiary: {r.get('wymiary') or '-'} | 🧱 Materiał: {r.get('material') or '-'} | 📌 Aktualny status: **{r['status']}**")
                     
-                    c_info1, c_info2, c_info3 = st.columns(3)
-                    c_info1.write(f"**Ilość:** {r['ilosc']}")
-                    c_info1.write(f"**Wymiary:** {r.get('wymiary') or '---'}")
-                    c_info2.write(f"**Materiał:** {r.get('material') or '---'}")
-                    c_info2.write(f"**Projekt:** {r.get('projekt') or '---'}")
-                    c_info3.write(f"**Pilność:** {r.get('pilnosc') or 'Normalna'}")
-                    c_info3.write(f"**Status:** {r['status']}")
-
-                    if r.get('zdjecie_url'):
-                        if r['zdjecie_url'].lower().endswith(".pdf"):
-                            st.link_button("📄 Otwórz Załącznik PDF", r['zdjecie_url'])
-                        else:
-                            with st.expander("🖼️ Zobacz zdjęcie"):
-                                st.image(r['zdjecie_url'], use_container_width=True)
-
-                    st.divider()
-
-                    # EDYCJA
-                    with st.expander("✏️ Edytuj dane zamówienia"):
-                        e_col1, e_col2 = st.columns(2)
-                        up_poz = e_col1.text_input("Nazwa pozycji", value=r['pozycja'], key=f"edit_poz_{r['id']}")
-                        up_ilo = e_col2.text_input("Ilość", value=r['ilosc'], key=f"edit_ilo_{r['id']}")
-                        up_wym = e_col1.text_input("Wymiary", value=r.get('wymiary',''), key=f"edit_wym_{r['id']}")
-                        up_mat = e_col2.text_input("Materiał", value=r.get('material',''), key=f"edit_mat_{r['id']}")
-                        up_pro = e_col1.text_input("Projekt", value=r.get('projekt',''), key=f"edit_pro_{r['id']}")
-                        up_pil = e_col2.selectbox("Pilność", ["Normalna", "PILNE ⚡", "KRYTYCZNE 🛑"], 
-                                                 index=["Normalna", "PILNE ⚡", "KRYTYCZNE 🛑"].index(r.get('pilnosc','Normalna')), 
-                                                 key=f"edit_pil_{r['id']}")
-                        
-                        if st.button("💾 Zapisz poprawki danych", key=f"btn_edit_{r['id']}", use_container_width=True):
-                            supabase.table("zamowienia").update({
-                                "pozycja": up_poz, "ilosc": up_ilo, "wymiary": up_wym, 
-                                "material": up_mat, "projekt": up_pro, "pilnosc": up_pil
-                            }).eq("id", r['id']).execute()
-                            st.success("Dane zaktualizowane!")
-                            time.sleep(1); st.rerun()
-
-                    # STATUS 
-                    st.divider()
-                    col_st1, col_st2 = st.columns([1, 2])
+                    # 2. Narzędzia Statusu (w jednej linii)
+                    c_st, c_uw, c_zap = st.columns([2, 4, 1])
                     st_list = ["Oczekujące", "Zamówione", "Niedostępne", "Zamiennik", "Zrealizowane"]
-                    n_st = col_st1.selectbox("Zmień status", st_list, index=st_list.index(r['status']), key=f"st_sel_{r['id']}")
-                    n_uw = col_st2.text_input("Notatka dla pracowników", value=r.get('uwagi_admina') or "", key=f"uw_inp_{r['id']}")
+                    n_st = c_st.selectbox("Status", st_list, index=st_list.index(r['status']), key=f"st_sel_{r['id']}", label_visibility="collapsed")
+                    n_uw = c_uw.text_input("Notatka", value=r.get('uwagi_admina') or "", key=f"uw_inp_{r['id']}", placeholder="Dodaj krótką notatkę...", label_visibility="collapsed")
                     
-                    c_act1, c_act2 = st.columns([1, 1])
-                    if c_act1.button("✅ Zapisz status", key=f"save_st_{r['id']}", type="primary", use_container_width=True):
+                    if c_zap.button("💾 Zapisz", key=f"save_{r['id']}", type="primary", use_container_width=True):
                         supabase.table("zamowienia").update({"status": n_st, "uwagi_admina": n_uw}).eq("id", r['id']).execute()
-                        st.toast("Status zapisany pomyślnie!")
+                        st.toast("Status zaktualizowany!")
                         time.sleep(0.5); st.rerun()
 
-                    if c_act2.button("🗑️ Usuń zamówienie", key=f"del_{r['id']}", use_container_width=True):
-                        supabase.table("zamowienia").delete().eq("id", r['id']).execute()
-                        st.rerun()
+                    # 3. Przyciski Akcji (WhatsApp, Edycja, Zdjęcie) - na dole, w małych bloczkach
+                    b1, b2, b3, b4 = st.columns([2, 2, 1, 1])
+                    
+                    msg = f"Aktualizacja: {r['pozycja']} | Status: {n_st} | Uwagi: {n_uw}"
+                    tel_zgl = pracownicy_dict.get(r['zgloszone_przez'], '')
+                    
+                    # -> Główny guzik dla Zgłaszającego
+                    if tel_zgl:
+                        nr_zgl = "".join(filter(str.isdigit, tel_zgl))
+                        b1.link_button(f"📲 WA Zgłaszający ({r['zgloszone_przez']})", f"https://wa.me/{nr_zgl}?text={urllib.parse.quote(msg)}", use_container_width=True)
+                    else:
+                        b1.button(f"❌ Brak Tel ({r['zgloszone_przez']})", disabled=True, key=f"b_tel_{r['id']}", use_container_width=True)
+                    
+                    # -> Opcjonalne dodatkowe powiadomienia (Wyskakujące)
+                    with b2.popover("➕ WA Dodatkowo"):
+                        zaint = st.multiselect("Wybierz kogo powiadomić:", [k for k in pracownicy_dict.keys() if k != r['zgloszone_przez']], key=f"multi_{r['id']}")
+                        for os in zaint:
+                            tel_os = pracownicy_dict.get(os, '')
+                            if tel_os:
+                                nr_os = "".join(filter(str.isdigit, tel_os))
+                                st.link_button(f"Wyślij do: {os}", f"https://wa.me/{nr_os}?text={urllib.parse.quote(msg)}", use_container_width=True)
 
-                    # POWIADOMIENIA WHATSAPP (Bezpieczne formatowanie tekstu)
-                    with st.expander("📲 Powiadomienia WhatsApp (Wyślij po zapisaniu statusu)"):
-                        st.write("Wybierz dodatkowe osoby, które chcesz powiadomić:")
-                        wszyscy_pracownicy = list(pracownicy_dict.keys())
-                        zainteresowani = st.multiselect("Dodatkowi pracownicy:", wszyscy_pracownicy, key=f"multi_{r['id']}")
-                        
-                        # Bezpieczny string bez symboli nowej linii, które wywalały edytor
-                        msg = f"Aktualizacja zamówienia: {r['pozycja']} | Status: {n_st} | Uwagi: {n_uw}"
-                        
-                        tel_zgl = pracownicy_dict.get(r['zgloszone_przez'], '')
-                        if tel_zgl:
-                            nr_zgl = "".join(filter(str.isdigit, tel_zgl))
-                            st.link_button(f"👉 Powiadom zgłaszającego: {r['zgloszone_przez']}", 
-                                           f"https://wa.me/{nr_zgl}?text={urllib.parse.quote(msg)}", use_container_width=True)
-                        
-                        for osoba in zainteresowani:
-                            tel_zaint = pracownicy_dict.get(osoba, '')
-                            if tel_zaint:
-                                nr_zaint = "".join(filter(str.isdigit, tel_zaint))
-                                st.link_button(f"👉 Powiadom: {osoba}", 
-                                               f"https://wa.me/{nr_zaint}?text={urllib.parse.quote(msg)}", use_container_width=True)
+                    # -> Edycja (Wyskakujące okienko)
+                    with b3.popover("⚙️ Edycja"):
+                        up_poz = st.text_input("Pozycja", value=r['pozycja'], key=f"ep_{r['id']}")
+                        up_ilo = st.text_input("Ilość", value=r['ilosc'], key=f"ei_{r['id']}")
+                        up_wym = st.text_input("Wymiary", value=r.get('wymiary',''), key=f"ew_{r['id']}")
+                        up_mat = st.text_input("Materiał", value=r.get('material',''), key=f"em_{r['id']}")
+                        up_pro = st.text_input("Projekt", value=r.get('projekt',''), key=f"ej_{r['id']}")
+                        up_pil = st.selectbox("Pilność", ["Normalna", "PILNE ⚡", "KRYTYCZNE 🛑"], index=["Normalna", "PILNE ⚡", "KRYTYCZNE 🛑"].index(r.get('pilnosc','Normalna')), key=f"epi_{r['id']}")
+                        if st.button("Zapisz", key=f"btn_edit_{r['id']}", type="primary", use_container_width=True):
+                            supabase.table("zamowienia").update({"pozycja": up_poz, "ilosc": up_ilo, "wymiary": up_wym, "material": up_mat, "projekt": up_pro, "pilnosc": up_pil}).eq("id", r['id']).execute()
+                            st.rerun()
+                        st.divider()
+                        if st.button("🗑️ Usuń", key=f"del_{r['id']}", use_container_width=True):
+                            supabase.table("zamowienia").delete().eq("id", r['id']).execute()
+                            st.rerun()
+
+                    # -> Podgląd Załącznika
+                    if r.get('zdjecie_url'):
+                        if r['zdjecie_url'].lower().endswith(".pdf"):
+                            b4.link_button("📄 PDF", r['zdjecie_url'], use_container_width=True)
+                        else:
+                            with b4.popover("🖼️ Foto"):
+                                st.image(r['zdjecie_url'], use_container_width=True)
+                    else:
+                        b4.button("Brak 🖼️", disabled=True, key=f"no_pic_{r['id']}", use_container_width=True)
 
     # =========================================================================
     # ZAKŁADKA: ZARZĄDZANIE KONTAMI
@@ -288,7 +272,7 @@ else:
         if not res.data: st.info("Brak aktywnych zamówień.")
         for r in res.data:
             with st.container(border=True):
-                st.info(f"### 📦 {r['pozycja'].upper()}")
+                st.markdown(f"### 📦 {r['pozycja'].upper()} `x {r['ilosc']}`")
                 render_status_alert(r['status'])
                 if r.get('uwagi_admina'): st.info(f"Odpis Admina: {r['uwagi_admina']}")
 
