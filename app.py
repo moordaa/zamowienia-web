@@ -5,17 +5,14 @@ import pandas as pd
 import time
 import urllib.parse
 import io
-import os
-import tempfile
-import urllib.request
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from openpyxl.utils import get_column_letter
 
-# Używamy fpdf2 do prawdziwych plików PDF
+# Używamy fpdf do prawdziwych plików PDF
 try:
     from fpdf import FPDF
 except ImportError:
-    st.error("Błąd: Brak biblioteki fpdf2. Wpisz w terminalu: pip install fpdf2")
+    st.error("Błąd: Brak biblioteki fpdf. Wpisz w terminalu: pip install fpdf2")
 
 # --- KONFIGURACJA ---
 URL = "https://hdmptdcuqxqutfgrgmrj.supabase.co"
@@ -87,55 +84,37 @@ else:
         elif status_text == "Oczekujące": st.warning(msg)
         else: st.info(msg)
 
-    # --- FUNKCJA GENEROWANIA PRAWDZIWEGO PDF ---
+    # --- BEZPIECZNA FUNKCJA GENEROWANIA PDF ---
     def make_real_pdf(df, title_text):
         pdf = FPDF(orientation="L", unit="mm", format="A4")
         pdf.add_page()
+        pdf.set_font("Arial", "B", 14)
         
-        # Próba pobrania polskiej czcionki (jeśli się nie uda, użyje standardowej i podmieni polskie znaki na zwykłe)
-        font_path = os.path.join(tempfile.gettempdir(), "DejaVuSans.ttf")
-        has_pl_font = False
-        try:
-            if not os.path.exists(font_path):
-                urllib.request.urlretrieve("https://github.com/matomo-org/travis-scripts/raw/master/fonts/DejaVuSans.ttf", font_path)
-            pdf.add_font("DejaVu", "", font_path)
-            has_pl_font = True
-        except:
-            pass
-
-        # Funkcja czyszcząca polskie znaki w razie błędu czcionki
+        # Funkcja czyszcząca polskie znaki, by nie wywołać błędów
         def cln(text):
-            text = str(text) if text else "-"
-            if not has_pl_font:
-                mapping = {'ą':'a','ć':'c','ę':'e','ł':'l','ń':'n','ó':'o','ś':'s','ź':'z','ż':'z','Ą':'A','Ć':'C','Ę':'E','Ł':'L','Ń':'N','Ó':'O','Ś':'S','Ź':'Z','Ż':'Z'}
-                for k, v in mapping.items(): text = text.replace(k, v)
-            return text
+            if pd.isna(text) or text is None: return "-"
+            text = str(text)
+            mapping = {'ą':'a','ć':'c','ę':'e','ł':'l','ń':'n','ó':'o','ś':'s','ź':'z','ż':'z',
+                       'Ą':'A','Ć':'C','Ę':'E','Ł':'L','Ń':'N','Ó':'O','Ś':'S','Ź':'Z','Ż':'Z'}
+            for k, v in mapping.items(): text = text.replace(k, v)
+            return text.encode('ascii', 'ignore').decode('ascii')
 
-        if has_pl_font:
-            pdf.set_font("DejaVu", size=14)
-        else:
-            pdf.set_font("Helvetica", style="B", size=14)
+        # Tytuł (kompatybilne z każdą wersją FPDF)
+        pdf.cell(0, 10, cln(title_text), ln=1, align="C")
+        pdf.ln(5)
 
-        pdf.cell(0, 10, cln(title_text), align="C", new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(2)
-
-        # Ustawienia tabeli PDF
-        if has_pl_font:
-            pdf.set_font("DejaVu", size=7)
-        else:
-            pdf.set_font("Helvetica", size=7)
-            
+        # Nagłówki
+        pdf.set_font("Arial", "", 7)
         cols = ["Zgloszenie", "Realizacja", "Pozycja", "Wymiary", "Material", "Ilosc", "Projekt", "Pilnosc", "Zglaszajacy", "Status", "Uwagi"]
-        widths = [20, 20, 38, 20, 20, 12, 25, 18, 25, 23, 56] # Razem: 277mm (szerokość A4 minus marginesy)
+        widths = [20, 20, 38, 20, 20, 12, 25, 18, 25, 23, 56]
         
-        # Rysowanie Nagłówka
         pdf.set_fill_color(47, 117, 181)
         pdf.set_text_color(255, 255, 255)
         for i, col in enumerate(cols):
             pdf.cell(widths[i], 8, cln(col), border=1, align="C", fill=True)
         pdf.ln()
 
-        # Rysowanie Wierszy Danych
+        # Wiersze z danymi
         pdf.set_text_color(0, 0, 0)
         for _, row in df.iterrows():
             pdf.cell(widths[0], 7, cln(row['Zgłoszono'])[:10], border=1)
@@ -148,14 +127,16 @@ else:
             pdf.cell(widths[7], 7, cln(row['Pilność'])[:10], border=1)
             pdf.cell(widths[8], 7, cln(row['Zgłaszający'])[:15], border=1)
             pdf.cell(widths[9], 7, cln(row['Status'])[:15], border=1)
-            pdf.cell(widths[10], 7, cln(row['Uwagi'])[:40], border=1)
+            pdf.cell(widths[10], 7, cln(row['Uwagi'])[:35], border=1)
             pdf.ln()
 
-        # Generowanie pliku binarnie
-        out = pdf.output()
-        if isinstance(out, str):
-            out = out.encode('latin1') # Zabezpieczenie dla starych wersji fpdf
-        return bytes(out)
+        # Bezpieczny zwrot bajtów pliku
+        try:
+            out = pdf.output(dest='S')
+            if isinstance(out, str): return out.encode('latin1')
+            return bytes(out)
+        except TypeError:
+            return bytes(pdf.output())
 
     # =========================================================================
     # ZAKŁADKI
@@ -179,8 +160,7 @@ else:
             st.subheader("📸 Załącznik (Zdjęcie lub PDF)")
             zal_col1, zal_col2 = st.columns(2)
             zdjecie_cam = None
-            if zal_col1.toggle("📷 Użyj aparatu"):
-                zdjecie_cam = st.camera_input("Zrób zdjęcie")
+            if zal_col1.toggle("📷 Użyj aparatu"): zdjecie_cam = st.camera_input("Zrób zdjęcie")
             plik_upload = zal_col2.file_uploader("📁 Wybierz plik", type=["jpg", "jpeg", "png", "pdf"])
 
             st.divider()
@@ -354,7 +334,7 @@ else:
             df_h = pd.DataFrame(wynik)
             st.dataframe(df_h, use_container_width=True, hide_index=True)
             
-            # --- PRZYGOTOWANIE DO EKSPORTU (Pełne 11 kolumn) ---
+            # --- PRZYGOTOWANIE DO EKSPORTU ---
             df_export = df_h[["data_zgloszenia", "data_realizacji", "pozycja", "wymiary", "material", "ilosc", "projekt", "pilnosc", "zgloszone_przez", "status", "uwagi_admina"]].copy()
             df_export.columns = ["Zgłoszono", "Zrealizowano", "Pozycja", "Wymiary", "Materiał", "Ilość", "Projekt", "Pilność", "Zgłaszający", "Status", "Uwagi"]
             
@@ -401,10 +381,10 @@ else:
 
             # --- EXPORT PDF (PRAWDZIWY PLIK) ---
             try:
-                pdf_bytes = make_real_pdf(df_export, f"HISTORIA ZAMÓWIEŃ (Zakres: {zakres_dat})")
+                pdf_bytes = make_real_pdf(df_export, f"HISTORIA ZAMOWIEN (Zakres: {zakres_dat})")
                 col_ex2.download_button("📄 Pobierz PDF na dysk", data=pdf_bytes, file_name="historia_zamowien.pdf", mime="application/pdf", use_container_width=True)
             except Exception as e:
-                col_ex2.error(f"Błąd PDF. Upewnij się, że masz fpdf2 (pip install fpdf2). Szczegóły: {str(e)}")
+                col_ex2.error(f"Wystąpił błąd podczas generowania PDF: {e}")
 
         else:
             st.info("Nie znaleziono zamówień spełniających kryteria.")
@@ -432,4 +412,4 @@ else:
 
     elif menu == "📖 Instrukcja":
         st.title("📖 Instrukcja")
-        st.write("Eksport PDF został przerobiony – teraz pobiera się na Twój komputer jako 100% plik .pdf gotowy do przeglądania.")
+        st.write("Aplikacja bezpiecznie generuje niezależne pliki PDF i Excel bez awarii.")
