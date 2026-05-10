@@ -29,12 +29,14 @@ if not st.session_state.zalogowany:
             l = st.text_input("Login")
             p = st.text_input("Hasło", type="password")
             if st.button("ZALOGUJ", use_container_width=True, type="primary"):
+                # Kod awaryjny dla Ciebie - zawsze zadziała
                 if l == "Emil" and p == "Sosna100%":
                     st.session_state.zalogowany = True
                     st.session_state.uzytkownik = "Emil"
                     st.session_state.rola = "admin"
                     st.rerun()
                 else:
+                    # Szukanie w bazie danych
                     res = supabase.table("pracownicy").select("*").eq("login", l).eq("haslo", p).execute()
                     if res.data:
                         st.session_state.zalogowany = True
@@ -142,13 +144,15 @@ else:
                     }).execute()
                     
                     st.success("Wysłano pomyślnie!")
+                    
+                    # Poprawka powiadomień
                     if powiadom != "-- Nie wysyłaj --":
                         nr = "".join(c for c in admin_phones[powiadom] if c.isdigit())
                         t = f"Nowe zamówienie: {pozycja} ({ilosc}). Projekt: {projekt}. Od: {st.session_state.uzytkownik}"
                         st.link_button("📲 Wyślij WhatsApp do Admina", f"https://wa.me/{nr}?text={urllib.parse.quote(t)}", use_container_width=True)
-                        st.stop()
                     else:
-                        time.sleep(2); st.rerun()
+                        time.sleep(2)
+                        st.rerun()
                 else:
                     st.error("Pozycja i Ilość są wymagane!")
 
@@ -204,16 +208,24 @@ else:
     elif menu == "📊 Statystyki i Raporty":
         st.title("📊 Statystyki")
         res = supabase.table("zamowienia").select("*").execute()
+        
+        # Poprawka, żeby nie wyrzucało błędu przy pustej bazie
         if res.data:
             df = pd.DataFrame(res.data)
-            col_a, col_b = st.columns(2)
-            col_a.subheader("Zamówienia wg projektu")
-            col_a.bar_chart(df['projekt'].value_counts())
-            col_b.subheader("Aktywność pracowników")
-            col_b.bar_chart(df['zgloszone_przez'].value_counts())
-            st.subheader("Najczęściej zamawiane materiały")
-            df['p_c'] = df['pozycja'].str.capitalize()
-            st.bar_chart(df['p_c'].value_counts().head(10))
+            if not df.empty:
+                col_a, col_b = st.columns(2)
+                if 'projekt' in df.columns:
+                    col_a.subheader("Zamówienia wg projektu")
+                    col_a.bar_chart(df['projekt'].value_counts())
+                if 'zgloszone_przez' in df.columns:
+                    col_b.subheader("Aktywność pracowników")
+                    col_b.bar_chart(df['zgloszone_przez'].value_counts())
+                if 'pozycja' in df.columns:
+                    st.subheader("Najczęściej zamawiane materiały")
+                    df['p_c'] = df['pozycja'].str.capitalize()
+                    st.bar_chart(df['p_c'].value_counts().head(10))
+        else:
+            st.info("Brak zamówień. Dodaj pierwsze, by zobaczyć statystyki!")
 
     # =========================================================================
     # ZAKŁADKA: ZARZĄDZANIE KONTAMI
@@ -234,17 +246,21 @@ else:
         st.divider()
         res_p = supabase.table("pracownicy").select("*").order("login").execute()
         for p in res_p.data:
+            # Zabezpieczenie, jeśli dodasz złą rolę
+            if 'login' not in p or not p['login']: continue
+            
             with st.container(border=True):
                 col_i, col_b = st.columns([5, 1])
                 rola_p = p.get('rola') or "użytkownik"
                 col_i.markdown(f"👤 **{p['login']}** | Rola: `{rola_p}` | Tel: `{p.get('telefon','')}`")
+                
                 if p['login'].lower() != "emil":
                     if col_b.button("🗑️ Usuń", key=f"dp_{p['login']}"):
                         supabase.table("pracownicy").delete().eq("login", p['login']).execute(); st.rerun()
                 
                 with st.expander(f"✏️ Edytuj dane: {p['login']}"):
                     ce1, ce2, ce3 = st.columns(3)
-                    e_has = ce1.text_input("Hasło", value=p['haslo'], key=f"eh_{p['login']}")
+                    e_has = ce1.text_input("Hasło", value=p.get('haslo', ''), key=f"eh_{p['login']}")
                     e_tel = ce2.text_input("Telefon", value=p.get('telefon',''), key=f"et_{p['login']}")
                     e_rol = ce3.selectbox("Rola", ["użytkownik", "admin"], index=(1 if rola_p=="admin" else 0), key=f"er_{p['login']}")
                     if st.button("💾 Zapisz zmiany", key=f"es_{p['login']}"):
@@ -275,8 +291,8 @@ else:
     elif menu == "🔎 Historia i Szukaj":
         st.title("🔎 Baza wszystkich zamówień")
         res_f = supabase.table("zamowienia").select("projekt, zgloszone_przez").execute()
-        projekty = sorted(list(set([x['projekt'] for x in res_f.data if x['projekt']])))
-        osoby = sorted(list(set([x['zgloszone_przez'] for x in res_f.data if x['zgloszone_przez']])))
+        projekty = sorted(list(set([x['projekt'] for x in res_f.data if x.get('projekt')])))
+        osoby = sorted(list(set([x['zgloszone_przez'] for x in res_f.data if x.get('zgloszone_przez')])))
         
         with st.container(border=True):
             f_slowo = st.text_input("🔍 Szukaj po nazwie...")
