@@ -5,8 +5,17 @@ import pandas as pd
 import time
 import urllib.parse
 import io
+import os
+import tempfile
+import urllib.request
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from openpyxl.utils import get_column_letter
+
+# Używamy fpdf2 do prawdziwych plików PDF
+try:
+    from fpdf import FPDF
+except ImportError:
+    st.error("Błąd: Brak biblioteki fpdf2. Wpisz w terminalu: pip install fpdf2")
 
 # --- KONFIGURACJA ---
 URL = "https://hdmptdcuqxqutfgrgmrj.supabase.co"
@@ -56,18 +65,14 @@ else:
     with st.sidebar:
         st.success(f"Zalogowano: **{st.session_state.uzytkownik}**")
         st.divider()
-        
         opcje = ["📝 Nowe Zamówienie", "📋 Moje Aktywne", "🔎 Historia i Szukaj", "📖 Instrukcja"]
         if st.session_state.rola == "admin":
             opcje.insert(1, "⚙️ Panel Realizacji (Admin)")
             opcje.insert(2, "📊 Statystyki i Raporty")
             opcje.insert(3, "👥 Zarządzanie Kontami")
-        
         menu = st.radio("MENU", opcje)
-            
         st.divider()
-        if st.button("🔄 Odśwież dane", use_container_width=True):
-            st.rerun()
+        if st.button("🔄 Odśwież dane", use_container_width=True): st.rerun()
         if st.button("🚪 Wyloguj", use_container_width=True):
             st.session_state.zalogowany = False
             st.rerun()
@@ -82,12 +87,81 @@ else:
         elif status_text == "Oczekujące": st.warning(msg)
         else: st.info(msg)
 
+    # --- FUNKCJA GENEROWANIA PRAWDZIWEGO PDF ---
+    def make_real_pdf(df, title_text):
+        pdf = FPDF(orientation="L", unit="mm", format="A4")
+        pdf.add_page()
+        
+        # Próba pobrania polskiej czcionki (jeśli się nie uda, użyje standardowej i podmieni polskie znaki na zwykłe)
+        font_path = os.path.join(tempfile.gettempdir(), "DejaVuSans.ttf")
+        has_pl_font = False
+        try:
+            if not os.path.exists(font_path):
+                urllib.request.urlretrieve("https://github.com/matomo-org/travis-scripts/raw/master/fonts/DejaVuSans.ttf", font_path)
+            pdf.add_font("DejaVu", "", font_path)
+            has_pl_font = True
+        except:
+            pass
+
+        # Funkcja czyszcząca polskie znaki w razie błędu czcionki
+        def cln(text):
+            text = str(text) if text else "-"
+            if not has_pl_font:
+                mapping = {'ą':'a','ć':'c','ę':'e','ł':'l','ń':'n','ó':'o','ś':'s','ź':'z','ż':'z','Ą':'A','Ć':'C','Ę':'E','Ł':'L','Ń':'N','Ó':'O','Ś':'S','Ź':'Z','Ż':'Z'}
+                for k, v in mapping.items(): text = text.replace(k, v)
+            return text
+
+        if has_pl_font:
+            pdf.set_font("DejaVu", size=14)
+        else:
+            pdf.set_font("Helvetica", style="B", size=14)
+
+        pdf.cell(0, 10, cln(title_text), align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(2)
+
+        # Ustawienia tabeli PDF
+        if has_pl_font:
+            pdf.set_font("DejaVu", size=7)
+        else:
+            pdf.set_font("Helvetica", size=7)
+            
+        cols = ["Zgloszenie", "Realizacja", "Pozycja", "Wymiary", "Material", "Ilosc", "Projekt", "Pilnosc", "Zglaszajacy", "Status", "Uwagi"]
+        widths = [20, 20, 38, 20, 20, 12, 25, 18, 25, 23, 56] # Razem: 277mm (szerokość A4 minus marginesy)
+        
+        # Rysowanie Nagłówka
+        pdf.set_fill_color(47, 117, 181)
+        pdf.set_text_color(255, 255, 255)
+        for i, col in enumerate(cols):
+            pdf.cell(widths[i], 8, cln(col), border=1, align="C", fill=True)
+        pdf.ln()
+
+        # Rysowanie Wierszy Danych
+        pdf.set_text_color(0, 0, 0)
+        for _, row in df.iterrows():
+            pdf.cell(widths[0], 7, cln(row['Zgłoszono'])[:10], border=1)
+            pdf.cell(widths[1], 7, cln(row['Zrealizowano'])[:10], border=1)
+            pdf.cell(widths[2], 7, cln(row['Pozycja'])[:25], border=1)
+            pdf.cell(widths[3], 7, cln(row['Wymiary'])[:12], border=1)
+            pdf.cell(widths[4], 7, cln(row['Materiał'])[:12], border=1)
+            pdf.cell(widths[5], 7, cln(row['Ilość'])[:8], border=1)
+            pdf.cell(widths[6], 7, cln(row['Projekt'])[:15], border=1)
+            pdf.cell(widths[7], 7, cln(row['Pilność'])[:10], border=1)
+            pdf.cell(widths[8], 7, cln(row['Zgłaszający'])[:15], border=1)
+            pdf.cell(widths[9], 7, cln(row['Status'])[:15], border=1)
+            pdf.cell(widths[10], 7, cln(row['Uwagi'])[:40], border=1)
+            pdf.ln()
+
+        # Generowanie pliku binarnie
+        out = pdf.output()
+        if isinstance(out, str):
+            out = out.encode('latin1') # Zabezpieczenie dla starych wersji fpdf
+        return bytes(out)
+
     # =========================================================================
-    # ZAKŁADKA: NOWE ZAMÓWIENIE
+    # ZAKŁADKI
     # =========================================================================
     if menu == "📝 Nowe Zamówienie":
         st.title("📝 Dodaj zamówienie")
-        
         admins_res = supabase.table("pracownicy").select("login, telefon").eq("rola", "admin").execute()
         admin_phones = {a['login']: a['telefon'] for a in admins_res.data if a.get('telefon')}
         
@@ -118,8 +192,7 @@ else:
                     url_zdj = ""
                     final_file = None
                     ext = "jpg"
-                    if zdjecie_cam:
-                        final_file = zdjecie_cam.getvalue()
+                    if zdjecie_cam: final_file = zdjecie_cam.getvalue()
                     elif plik_upload:
                         final_file = plik_upload.getvalue()
                         ext = plik_upload.name.split('.')[-1]
@@ -147,19 +220,13 @@ else:
                 else:
                     st.error("Wypełnij wymagane pola!")
 
-    # =========================================================================
-    # ZAKŁADKA: PANEL REALIZACJI (ADMIN)
-    # =========================================================================
     elif menu == "⚙️ Panel Realizacji (Admin)":
         st.title("⚙️ Zarządzanie realizacją")
-        
         prac_res = supabase.table("pracownicy").select("login, telefon").execute()
         pracownicy_dict = {p['login']: p.get('telefon', '') for p in prac_res.data}
-
         res = supabase.table("zamowienia").select("*").neq("status", "Zrealizowane").order("id", desc=True).execute()
         
-        if not res.data:
-            st.success("Wszystkie zamówienia zrealizowane! 👏")
+        if not res.data: st.success("Wszystkie zamówienia zrealizowane! 👏")
         else:
             for r in res.data:
                 with st.container(border=True):
@@ -173,14 +240,10 @@ else:
                     
                     if c_zap.button("💾 Zapisz", key=f"save_{r['id']}", type="primary", use_container_width=True):
                         u_data = {"status": n_st, "uwagi_admina": n_uw}
-                        if n_st == "Zrealizowane":
-                            u_data["data_realizacji"] = str(datetime.today().date())
-                        else:
-                            u_data["data_realizacji"] = None
-                        
+                        if n_st == "Zrealizowane": u_data["data_realizacji"] = str(datetime.today().date())
+                        else: u_data["data_realizacji"] = None
                         supabase.table("zamowienia").update(u_data).eq("id", r['id']).execute()
-                        st.toast("Zapisano!")
-                        time.sleep(0.5); st.rerun()
+                        st.toast("Zapisano!"); time.sleep(0.5); st.rerun()
 
                     b1, b2, b3, b4 = st.columns([2, 2, 1, 1])
                     msg = f"Aktualizacja: {r['pozycja']} | Status: {n_st} | Uwagi: {n_uw}"
@@ -193,7 +256,6 @@ else:
                         b1.button(f"⚠️ {r['zgloszone_przez']} (Brak Tel)", disabled=True, use_container_width=True)
                     
                     with b2.popover("➕ WA Inni"):
-                        st.write("Wybierz osoby do powiadomienia:")
                         lista_opcji = [k for k in pracownicy_dict.keys() if k != r['zgloszone_przez']]
                         zaint = st.multiselect("Dodaj osoby:", lista_opcji, key=f"multi_{r['id']}")
                         for os in zaint:
@@ -214,21 +276,15 @@ else:
                             st.rerun()
                         st.divider()
                         if st.button("🗑️ Usuń trwale", key=f"del_{r['id']}", use_container_width=True):
-                            supabase.table("zamowienia").delete().eq("id", r['id']).execute()
-                            st.rerun()
+                            supabase.table("zamowienia").delete().eq("id", r['id']).execute(); st.rerun()
 
                     if r.get('zdjecie_url'):
-                        if r['zdjecie_url'].lower().endswith(".pdf"):
-                            b4.link_button("📄 PDF", r['zdjecie_url'], use_container_width=True)
+                        if r['zdjecie_url'].lower().endswith(".pdf"): b4.link_button("📄 PDF", r['zdjecie_url'], use_container_width=True)
                         else:
-                            with b4.popover("🖼️ FOTO"):
-                                st.image(r['zdjecie_url'], use_container_width=True)
+                            with b4.popover("🖼️ FOTO"): st.image(r['zdjecie_url'], use_container_width=True)
                     else:
                         b4.button("❌ 🖼️", disabled=True, use_container_width=True)
 
-    # =========================================================================
-    # ZAKŁADKA: ZARZĄDZANIE KONTAMI
-    # =========================================================================
     elif menu == "👥 Zarządzanie Kontami":
         st.title("👥 Zarządzanie pracownikami")
         with st.container(border=True):
@@ -242,8 +298,7 @@ else:
                 if n_log and n_has:
                     supabase.table("pracownicy").insert({"login": n_log, "haslo": n_has, "rola": n_rol, "telefon": n_tel}).execute()
                     st.success(f"Dodano: {n_log}"); time.sleep(1); st.rerun()
-                else:
-                    st.error("Login i Hasło są obowiązkowe!")
+                else: st.error("Login i Hasło są obowiązkowe!")
 
         st.divider()
         res_p = supabase.table("pracownicy").select("*").order("login").execute()
@@ -253,8 +308,7 @@ else:
                 col_info, col_edit, col_del = st.columns([4, 1, 1])
                 aktualne_haslo = p.get('hasło') or p.get('haslo') or ""
                 haslo_widoczne = aktualne_haslo if aktualne_haslo else "???"
-                if p['login'].lower() == "emil" and st.session_state.uzytkownik.lower() != "emil":
-                    haslo_widoczne = "••••••••"
+                if p['login'].lower() == "emil" and st.session_state.uzytkownik.lower() != "emil": haslo_widoczne = "••••••••"
                 col_info.markdown(f"👤 **{p['login']}** | 🔑 Hasło: `{haslo_widoczne}` | 🛠️ Rola: `{p.get('rola')}` | 📞 Tel: `{p.get('telefon','')}`")
                 
                 with col_edit.popover("✏️ Edytuj"):
@@ -271,7 +325,7 @@ else:
                         supabase.table("pracownicy").delete().eq("login", p['login']).execute(); st.rerun()
 
     # =========================================================================
-    # ZAKŁADKA: HISTORIA I SZUKAJ (NOWE, PROFESJONALNE EKSPORTY)
+    # ZAKŁADKA: HISTORIA I SZUKAJ (W TYM EKSPORTY NA DYSK)
     # =========================================================================
     elif menu == "🔎 Historia i Szukaj":
         st.title("🔎 Pełna baza zamówień")
@@ -298,99 +352,60 @@ else:
 
         if wynik:
             df_h = pd.DataFrame(wynik)
-            
-            # Wstawienie pełnej tabeli podglądu na stronie (zostawiamy oryginalne nazwy kolumn dla aplikacji)
             st.dataframe(df_h, use_container_width=True, hide_index=True)
             
-            # --- PRZYGOTOWANIE DANYCH DO EKSPORTU ---
-            df_export = df_h[["data_zgloszenia", "data_realizacji", "pozycja", "ilosc", "projekt", "zgloszone_przez", "status"]].copy()
-            df_export.columns = ["Zgłoszono", "Zrealizowano", "Pozycja", "Ilość", "Projekt", "Zgłaszający", "Status"]
+            # --- PRZYGOTOWANIE DO EKSPORTU (Pełne 11 kolumn) ---
+            df_export = df_h[["data_zgloszenia", "data_realizacji", "pozycja", "wymiary", "material", "ilosc", "projekt", "pilnosc", "zgloszone_przez", "status", "uwagi_admina"]].copy()
+            df_export.columns = ["Zgłoszono", "Zrealizowano", "Pozycja", "Wymiary", "Materiał", "Ilość", "Projekt", "Pilność", "Zgłaszający", "Status", "Uwagi"]
             
-            # Obliczanie zakresu dat na potrzeby nagłówków
             min_date = df_export['Zgłoszono'].min() if not df_export.empty else "Brak"
             max_date = df_export['Zgłoszono'].max() if not df_export.empty else "Brak"
             zakres_dat = f"{min_date} do {max_date}"
 
             col_ex1, col_ex2 = st.columns(2)
 
-            # === 1. ZAAWANSOWANY EKSPORT DO EXCELA (openpyxl) ===
-            output_excel = io.BytesIO()
-            with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
-                df_export.to_excel(writer, index=False, sheet_name='Historia', startrow=2)
-                ws = writer.sheets['Historia']
-                
-                # Dodawanie i stylizowanie Tytułu / Nagłówka
-                ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_export.columns))
-                cell_title = ws.cell(row=1, column=1)
-                cell_title.value = f"HISTORIA ZAMÓWIEŃ (Zakres: {zakres_dat})"
-                cell_title.font = Font(size=14, bold=True, color="FFFFFF")
-                cell_title.fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-                cell_title.alignment = Alignment(horizontal="center", vertical="center")
-                ws.row_dimensions[1].height = 30
-                
-                # Stylizacja nagłówków kolumn i dodawanie ramek
-                thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-                for col_num in range(1, len(df_export.columns) + 1):
-                    c = ws.cell(row=3, column=col_num)
-                    c.font = Font(bold=True, color="FFFFFF")
-                    c.fill = PatternFill(start_color="2F75B5", end_color="2F75B5", fill_type="solid")
-                    c.alignment = Alignment(horizontal="center", vertical="center")
-                    c.border = thin_border
-                
-                # Stylizacja samych danych
-                for row in ws.iter_rows(min_row=4, max_row=len(df_export)+3, min_col=1, max_col=len(df_export.columns)):
-                    for c in row:
+            # --- EXPORT EXCEL (openpyxl) ---
+            try:
+                output_excel = io.BytesIO()
+                with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
+                    df_export.to_excel(writer, index=False, sheet_name='Historia', startrow=2)
+                    ws = writer.sheets['Historia']
+                    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_export.columns))
+                    cell_title = ws.cell(row=1, column=1)
+                    cell_title.value = f"HISTORIA ZAMÓWIEŃ (Zakres: {zakres_dat})"
+                    cell_title.font = Font(size=14, bold=True, color="FFFFFF")
+                    cell_title.fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+                    cell_title.alignment = Alignment(horizontal="center", vertical="center")
+                    
+                    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+                    for col_num in range(1, len(df_export.columns) + 1):
+                        c = ws.cell(row=3, column=col_num)
+                        c.font = Font(bold=True, color="FFFFFF")
+                        c.fill = PatternFill(start_color="2F75B5", end_color="2F75B5", fill_type="solid")
+                        c.alignment = Alignment(horizontal="center", vertical="center")
                         c.border = thin_border
-                        c.alignment = Alignment(horizontal="left", vertical="center")
+                    
+                    for row in ws.iter_rows(min_row=4, max_row=len(df_export)+3, min_col=1, max_col=len(df_export.columns)):
+                        for c in row:
+                            c.border = thin_border
+                            c.alignment = Alignment(horizontal="left", vertical="center")
+                    
+                    for i, col in enumerate(df_export.columns, 1): ws.column_dimensions[get_column_letter(i)].width = 18
+                    ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+                    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+                    ws.page_setup.fitToPage = True
                 
-                # Dopasowywanie szerokości kolumn do wydruku
-                for i, col in enumerate(df_export.columns, 1):
-                    ws.column_dimensions[get_column_letter(i)].width = 18
-                
-                # Ustawienia strony idealne pod wydruk A4 Poziomo
-                ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
-                ws.page_setup.paperSize = ws.PAPERSIZE_A4
-                ws.page_setup.fitToPage = True
-                ws.page_setup.fitToHeight = 0
-                ws.page_setup.fitToWidth = 1
-            
-            excel_data = output_excel.getvalue()
-            col_ex1.download_button("📊 Pobierz dopracowany Excel (A4)", excel_data, "historia_zamowien.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                col_ex1.download_button("📊 Pobierz Excel na dysk", output_excel.getvalue(), "historia_zamowien.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            except Exception as e:
+                col_ex1.error("Błąd generowania Excela. Zainstaluj openpyxl")
 
-            # === 2. EKSPORT DO PDF (HTML FORMATOWANY DLA DRUKAREK) ===
-            html_rows = ""
-            for _, r in df_export.iterrows():
-                # Bezpieczne zamienianie pustych wartości na kreskę
-                data_realizacji = r['Zrealizowano'] if pd.notna(r['Zrealizowano']) and r['Zrealizowano'] else "-"
-                projekt = r['Projekt'] if pd.notna(r['Projekt']) and r['Projekt'] else "-"
-                
-                html_rows += f"<tr><td>{r['Zgłoszono']}</td><td>{data_realizacji}</td><td>{r['Pozycja']}</td><td>{r['Ilość']}</td><td>{projekt}</td><td>{r['Zgłaszający']}</td><td>{r['Status']}</td></tr>"
-                
-            html_template = f"""
-            <html><head><meta charset="UTF-8"><title>Raport Zamówień</title>
-            <style>
-                @page {{ size: A4 landscape; margin: 15mm; }}
-                body {{ font-family: 'Arial', sans-serif; color: #333; }}
-                h2 {{ text-align: center; color: #1F4E78; border-bottom: 2px solid #1F4E78; padding-bottom: 10px; }}
-                .date {{ text-align: center; font-weight: bold; margin-bottom: 25px; font-size: 14px; color: #555; }}
-                table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }}
-                th, td {{ border: 1px solid #ccc; padding: 10px; text-align: left; }}
-                th {{ background-color: #2F75B5; color: white; font-weight: bold; text-transform: uppercase; }}
-                tr:nth-child(even) {{ background-color: #f5f5f5; }}
-            </style>
-            </head>
-            <body onload="window.print()">
-                <h2>RAPORT HISTORII ZAMÓWIEŃ</h2>
-                <div class="date">Zakres zamówień: {zakres_dat}</div>
-                <table>
-                    <tr><th>Zgłoszono</th><th>Zrealizowano</th><th>Pozycja</th><th>Ilość</th><th>Projekt</th><th>Zgłaszający</th><th>Status</th></tr>
-                    {html_rows}
-                </table>
-            </body></html>
-            """
-            
-            col_ex2.download_button("📄 Pobierz do druku (jako PDF)", html_template.encode('utf-8-sig'), "raport_zamowien.html", "text/html", use_container_width=True)
-            
+            # --- EXPORT PDF (PRAWDZIWY PLIK) ---
+            try:
+                pdf_bytes = make_real_pdf(df_export, f"HISTORIA ZAMÓWIEŃ (Zakres: {zakres_dat})")
+                col_ex2.download_button("📄 Pobierz PDF na dysk", data=pdf_bytes, file_name="historia_zamowien.pdf", mime="application/pdf", use_container_width=True)
+            except Exception as e:
+                col_ex2.error(f"Błąd PDF. Upewnij się, że masz fpdf2 (pip install fpdf2). Szczegóły: {str(e)}")
+
         else:
             st.info("Nie znaleziono zamówień spełniających kryteria.")
 
@@ -417,4 +432,4 @@ else:
 
     elif menu == "📖 Instrukcja":
         st.title("📖 Instrukcja")
-        st.write("W zakładce Historia znajdziesz teraz przyciski do profesjonalnego eksportu.")
+        st.write("Eksport PDF został przerobiony – teraz pobiera się na Twój komputer jako 100% plik .pdf gotowy do przeglądania.")
